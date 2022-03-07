@@ -1,0 +1,121 @@
+bank rom @ 0x0000 : [constdata; 8192];
+bank ram @ 0x2000 : [vardata; 1024];
+bank screen @ 0x2400 : [vardata; 1024];
+//namespace bw8080 {
+var vblankStatus @ 0x2072 : u8;
+var isrDelay @ 0x20C0 : u8;
+var coinSwitch @ 0x20EA : u8;
+var numCoins @ 0x20EB : u8;
+var suspendPlay @ 0x20E9 : u8;
+var gameMode @ 0x20EF : u8;
+//}
+
+namespace io {
+  let INP1 = 0x01;
+}
+
+in rom @ 0x0000 {
+
+  nop();
+  nop();
+  nop();
+
+  ScanLine96:
+  push(af);
+  push(bc);
+  push(de);
+  push(hl);
+
+  ScanLine224:
+  push(af);
+  push(bc);
+  push(de);
+  push(hl);
+  a = 0x80;
+  (vblankStatus) = a;
+  hl = &isrDelay as u16;
+  --*(hl as *u8);
+  CheckHandleTilt();
+  a = io_read(io.INP1);
+  a >>>>= 1;
+//  goto registercredit if carry;
+  a = (coinSwitch);
+  a = a & a;
+  goto noCoin if zero;
+//  if (!zero) {
+//  goto checkmove if zero;
+  
+  
+  a = (numCoins);
+  cmp(a,0x99);
+//  goto  if zero;
+  a = a + (io.INP1);
+  decimal_adjust();
+  (numCoins) = a;
+  DrawNumCredits();
+  a = a ^ a;
+  (coinSwitch) = a;
+  //}
+  noCoin:
+  a = (suspendPlay);
+  a = a & a;
+//  0046: CA 82 00        JP      Z,$0082             ; No ... restore registers and out
+  
+  a = (gameMode); 
+  a = a & a;
+  //004D: C2 6F 00        JP      NZ,$006F            ; Yes ... go process game-play things and out
+  a = (numCoins);
+  a = a & a;
+  //0054: C2 5D 00        JP      NZ,$005D            ; Yes ... skip any ISR animations for the splash screens
+//	ISRSplTasks();
+//  0057: CD BF 0A        CALL    ISRSplTasks         ; Process ISR tasks for splash screens
+//005A: C3 82 00        JP      $0082               ; Restore registers and out
+
+}
+
+in rom @ 0x9B2 {
+func DrawHexByte{
+//; Display 2 digits in A to screen at HL
+  push(de);
+  push(af);
+  a >>>>= 4;
+  a = a & 0x0F;
+
+//  09BA: CD C5 09        CALL    $09C5               ; To screen at HL
+  af = pop();
+//  09BD: F1              POP     AF                  ; Restore digit
+  a = a & 0x0f;
+  /*09BE: E6 0F           AND     $0F                 ; Mask out upper digit
+09C0: CD C5 09        CALL    $09C5               ; To screen
+09C3: D1              POP     DE                  ; Restore
+09C4: C9              RET                         ; Done
+;
+09C5: C6 1A           ADD     A,$1A               ; Bump to number characters
+09C7: C3 FF 08        JP      DrawChar            ; Continue ...
+*/
+}
+}
+
+in rom @ 0x17CD {
+  CheckHandleTilt:
+}
+
+in rom @ 0x18D4 {
+  init:
+  sp = 0xC400;
+  
+}
+
+in rom @ 0x1947 {
+func DrawNumCredits{
+
+  a = (numCoins);
+  hl = 0x3C01;
+//  goto DrawHexByte;
+}
+}
+//; Display number of credits on screen
+//1947: 3A EB 20        LD      A,(numCoins)        ; Number of credits
+//194A: 21 01 3C        LD      HL,$3C01            ; Screen coordinates
+//194D: C3 B2 09        JP      DrawHexByte         ; Character to screen
+  
