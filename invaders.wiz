@@ -1,91 +1,1101 @@
-bank rom @ 0x0000 : [constdata; 8192];
-bank ram @ 0x2000 : [vardata; 1024];
-bank screen @ 0x2400 : [vardata; 1024];
-//namespace bw8080 {
-var vblankStatus @ 0x2072 : u8;
-var isrDelay @ 0x20C0 : u8;
-var coinSwitch @ 0x20EA : u8;
-var numCoins @ 0x20EB : u8;
-var suspendPlay @ 0x20E9 : u8;
-var gameMode @ 0x20EF : u8;
-//}
+import "banks";
+import "vars";
 
-namespace io {
-  let INP1 = 0x01;
-}
 
 in rom @ 0x0000 {
+  Reset: 
+// Execution begins here on power-up and reset.
+  nop();
+  nop();
+  nop();
+  ^goto init;
+  nop();
+  nop();
+/*
+0000: 00              NOP                         ; This provides a slot ...
+0001: 00              NOP                         ; ... to put in a JP for ...
+0002: 00              NOP                         ; ... development
+0003: C3 D4 18        JP      init                ; Continue startup at 18D4
+0006: 00 00      ; Padding before fixed ISR address
+*/
+}
 
-  nop();
-  nop();
-  nop();
-
+in rom @ 0x0008 {
   ScanLine96:
+// Interrupt brings us here when the beam is *near* the middle of the screen. The real middle
+// would be 224/2 = 112. The code pretends this interrupt happens at line 128.
   push(af);
   push(bc);
   push(de);
   push(hl);
+  ^goto 0x08C as func;
+  nop();
+/*
+0008: F5              PUSH    AF                  ; Save ...
+0009: C5              PUSH    BC                  ; ...
+000A: D5              PUSH    DE                  ; ...
+000B: E5              PUSH    HL                  ; ... everything
+000C: C3 8C 00        JP      $008C               ; Continue ISR at 8C
+000F: 00         ; Padding before fixed ISR address
+*/
+}
 
+in rom @ 0x0010 {
   ScanLine224:
+// Interrupt brings us here when the beam is at the end of the screen (line 224) when the VBLANK begins.
   push(af);
   push(bc);
   push(de);
   push(hl);
   a = 0x80;
-  (vblankStatus) = a;
+  vblankStatus = a;
   hl = &isrDelay as u16;
   --*(hl as *u8);
   CheckHandleTilt();
   a = io_read(io.INP1);
-  a >>>>= 1;
-//  goto registercredit if carry;
+  // RRCA is no go in wiz so fake it.
+  const rrca10 : u8 = 0x0F;
+
+  ^goto registercredit if carry;
   a = (coinSwitch);
   a = a & a;
-  goto noCoin if zero;
-//  if (!zero) {
-//  goto checkmove if zero;
-  
-  
-  a = (numCoins);
-  cmp(a,0x99);
-//  goto  if zero;
-  a = a + (io.INP1);
-  decimal_adjust();
-  (numCoins) = a;
-  DrawNumCredits();
+  ^goto noCoin if zero;
+/*
+0010: F5              PUSH    AF                  ; Save ...
+0011: C5              PUSH    BC                  ; ...
+0012: D5              PUSH    DE                  ; ...
+0013: E5              PUSH    HL                  ; ... everything
+0014: 3E 80           LD      A,$80               ; Flag that tells objects ...
+0016: 32 72 20        LD      (vblankStatus),A    ; ... on the lower half of the screen to draw/move
+0019: 21 C0 20        LD      HL,isrDelay         ; Decrement ...
+001C: 35              DEC     (HL)                ; ... the general countdown (used for pauses)
+001D: CD CD 17        CALL    CheckHandleTilt     ; Check and handle TILT
+0020: DB 01           IN      A,(INP1)            ; Read coin switch
+0022: 0F              RRCA                        ; Has a coin been deposited (bit 0)?
+0023: DA 67 00        JP      C,$0067             ; Yes ... note that switch is closed and continue at 3F with A=1
+0026: 3A EA 20        LD      A,(coinSwitch)      ; Switch is now open. Was it ...
+0029: A7              AND     A                   ; ... closed last time?
+002A: CA 42 00        JP      Z,$0042             ; No ... skip registering the credit
+*/
+}
+
+in rom @ 0x002D {
+// Handle bumping credit count
+  a = numCoins;
+  cmp (a,0x99);
+  ^if !zero {
+    a = a + (io.INP1);
+    decimal_adjust();
+    (numCoins) = a;
+    DrawNumCredits();
+  }
   a = a ^ a;
-  (coinSwitch) = a;
-  //}
+  coinSwitch = a;
+/*
+002D: 3A EB 20        LD      A,(numCoins)        ; Number of credits in BCD
+0030: FE 99           CP      $99                 ; 99 credits already?
+0032: CA 3E 00        JP      Z,$003E             ; Yes ... ignore this (better than rolling over to 00)
+0035: C6 01           ADD     A,$01               ; Bump number of credits
+0037: 27              DAA                         ; Make it binary coded decimal
+0038: 32 EB 20        LD      (numCoins),A        ; New number of credits
+003B: CD 47 19        CALL    DrawNumCredits      ; Draw credits on screen
+003E: AF              XOR     A                   ; Credit switch ...
+003F: 32 EA 20        LD      (coinSwitch),A      ; ... has opened
+*/
   noCoin:
-  a = (suspendPlay);
+  a = suspendPlay;
   a = a & a;
-//  0046: CA 82 00        JP      Z,$0082             ; No ... restore registers and out
-  
+  ^goto (0x82 as func) if zero;
   a = (gameMode); 
   a = a & a;
-  //004D: C2 6F 00        JP      NZ,$006F            ; Yes ... go process game-play things and out
+  ^goto (0x6f as func) if !zero;
   a = (numCoins);
   a = a & a;
-  //0054: C2 5D 00        JP      NZ,$005D            ; Yes ... skip any ISR animations for the splash screens
-//	ISRSplTasks();
-//  0057: CD BF 0A        CALL    ISRSplTasks         ; Process ISR tasks for splash screens
-//005A: C3 82 00        JP      $0082               ; Restore registers and out
+  ^goto (0x5D as func) if !zero;
+  ISRSplTasks();
+  ^goto (0x82 as func);
+/*
+0042: 3A E9 20        LD      A,(suspendPlay)     ; Are we moving ...
+0045: A7              AND     A                   ; ... game objects?
+0046: CA 82 00        JP      Z,$0082             ; No ... restore registers and out
+0049: 3A EF 20        LD      A,(gameMode)        ; Are we in ...
+004C: A7              AND     A                   ; ... game mode?
+004D: C2 6F 00        JP      NZ,$006F            ; Yes ... go process game-play things and out
+0050: 3A EB 20        LD      A,(numCoins)        ; Number of credits
+0053: A7              AND     A                   ; Are there any credits (player standing there)?
+0054: C2 5D 00        JP      NZ,$005D            ; Yes ... skip any ISR animations for the splash screens
+0057: CD BF 0A        CALL    ISRSplTasks         ; Process ISR tasks for splash screens
+005A: C3 82 00        JP      $0082               ; Restore registers and out
+*/  
+}
+
+in rom @ 0x5D {
+// At this point no game is going and there are credits
+  a = waitStartLoop;
+  a = a & a;
+  ^goto (0x82 as func) if !zero;
+  ^goto WaitForStart;
+/*
+005D: 3A 93 20        LD      A,(waitStartLoop)   ; Are we in the ...
+0060: A7              AND     A                   ; ... "press start" loop?
+0061: C2 82 00        JP      NZ,$0082            ; Yes ... restore registers and out
+0064: C3 65 07        JP      WaitForStart        ; Start the "press start" loop
+*/
+}
+
+
+in rom @ 0x67 {
+// Mark credit as needing registering
+  registercredit:
+  a = 0x01;
+  coinSwitch = a;
+  ^goto 0x3F as func;
+/*
+0067: 3E 01           LD      A,$01               ; Remember switch ...
+0069: 32 EA 20        LD      (coinSwitch),A      ; ... state for debounce
+006C: C3 3F 00        JP      $003F               ; Continue
+*/
+}
+
+in rom @ 0x6F {
+// Main game-play timing loop
+  TimeFleetSound();
+  a = obj2TimerExtra;
+  shotSync = a;
+  DrawAlien();
+  RunGameObjs();
+  TimeToSaucer();
+  nop();
+/*
+006F: CD 40 17        CALL    TimeFleetSound      ; Time down fleet sound and sets flag if needs new delay value
+0072: 3A 32 20        LD      A,(obj2TimerExtra)  ; Use rolling shot's timer to sync ...
+0075: 32 80 20        LD      (shotSync),A        ; ... other two shots
+0078: CD 00 01        CALL    DrawAlien           ; Draw the current alien (or exploding alien)
+007B: CD 48 02        CALL    RunGameObjs         ; Process game objects (including player object)
+007E: CD 13 09        CALL    TimeToSaucer        ; Count down time to saucer
+0081: 00              NOP                         ; ** Why are we waiting?
+*/
 
 }
 
-in rom @ 0x9B2 {
-func DrawHexByte{
-//; Display 2 digits in A to screen at HL
-  push(de);
-  push(af);
-  a >>>>= 4;
-  a = a & 0x0F;
-
-//  09BA: CD C5 09        CALL    $09C5               ; To screen at HL
+in rom @ 0x0082 {
+  l_0x82:
+  hl = pop();
+  de = pop();
+  bc = pop();
   af = pop();
-//  09BD: F1              POP     AF                  ; Restore digit
-  a = a & 0x0f;
-  /*09BE: E6 0F           AND     $0F                 ; Mask out upper digit
+  interrupt = true;
+  return;
+/*
+0082: E1              POP     HL                  ; Restore ...
+0083: D1              POP     DE                  ; ...
+0084: C1              POP     BC                  ; ...
+0085: F1              POP     AF                  ; ... everything
+0086: FB              EI                          ; Enable interrupts
+0087: C9              RET                         ; Return from interrupt
+*/
+}
+
+
+in rom @ 0x88 {
+  nop();
+  nop();
+  nop();
+  nop();
+/*
+0088: 00 00 00 00 ; ** Why waste the space?
+*/
+}
+
+in rom @ 0x8C {
+// Continues here at scanline 96
+  a = a ^ a;
+  vblankStatus = a;
+  a = suspendPlay;
+  a = a & a;
+  ^goto l_0x82 if zero;
+  a = gameMode;
+  a = a & a;
+  ^goto (0xA5 as func) if !zero;
+  a = isrSplashTask;
+  const rrca8C : u8 = 0x0F;
+  ^goto l_0x82 if !carry;
+  hl = 0x2020;
+  f_024b();
+  CursorNextAlien();
+  ^goto l_0x82;
+/*
+008C: AF              XOR     A                   ; Flag that tells ...
+008D: 32 72 20        LD      (vblankStatus),A    ; ... objects on the upper half of screen to draw/move
+0090: 3A E9 20        LD      A,(suspendPlay)     ; Are we moving ...
+0093: A7              AND     A                   ; ... game objects?
+0094: CA 82 00        JP      Z,$0082             ; No ... restore and return
+0097: 3A EF 20        LD      A,(gameMode)        ; Are we in ...
+009A: A7              AND     A                   ; ... game mode?
+009B: C2 A5 00        JP      NZ,$00A5            ; Yes .... process game objects and out
+009E: 3A C1 20        LD      A,(isrSplashTask)   ; Splash-animation tasks
+00A1: 0F              RRCA                        ; If we are in demo-mode then we'll process the tasks anyway
+00A2: D2 82 00        JP      NC,$0082            ; Not in demo mode ... done
+;
+00A5: 21 20 20        LD      HL,$2020            ; Game object table (skip player-object at 2010)
+00A8: CD 4B 02        CALL    $024B               ; Process all game objects (except player object)
+00AB: CD 41 01        CALL    CursorNextAlien     ; Advance cursor to next alien (move the alien if it is last one)
+00AE: C3 82 00        JP      $0082               ; Restore and return
+*/
+}
+
+/*************
+ * The Aliens
+ *************/
+
+in rom @ 0xB1 {
+// Initialize the player's rack of aliens. Copy the reference-location and deltas from the
+// player's data bank.
+  func InitRack() {
+    GetAlRefPtr();
+    push(hl);
+    a = *(hl as *u8);
+    hl++;
+    h = *(hl as *u8);
+    l = a;
+    refAlienYr16 = hl;
+    alienPosLSB = hl;
+    hl = pop();
+    hl--;
+    a = *(hl as *u8);
+    cmp(a,0x03);
+    ^if(zero) {
+      a--;
+    }
+    refAlienDXr = a;
+    cmp(a,0xfe);
+    a = 0;
+
+    ^if zero {
+      a++;
+    }
+    rackDirection = a;
+/*
+00B1: CD 86 08        CALL    GetAlRefPtr         ; 2xFC Get current player's ref-alien position pointer
+00B4: E5              PUSH    HL                  ; Hold pointer
+00B5: 7E              LD      A,(HL)              ; Get player's ...
+00B6: 23              INC     HL                  ; ... ref-alien ...
+00B7: 66              LD      H,(HL)              ; ...
+00B8: 6F              LD      L,A                 ; ... coordinates
+00B9: 22 09 20        LD      (refAlienYr),HL     ; Set game's reference alien's X,Y
+00BC: 22 0B 20        LD      (alienPosLSB),HL    ; Set game's alien cursor bit position
+00BF: E1              POP     HL                  ; Restore pointer
+00C0: 2B              DEC     HL                  ; 21FB or 22FB ref alien's delta (left or right)
+00C1: 7E              LD      A,(HL)              ; Get ref alien's delta X
+00C2: FE 03           CP      $03                 ; If there is one alien it will move right at 3
+00C4: C2 C8 00        JP      NZ,$00C8            ; Not 3 ... keep it
+00C7: 3D              DEC     A                   ; If it is 3, back it down to 2 until it switches again
+00C8: 32 08 20        LD      (refAlienDXr),A     ; Store alien deltaY
+00CB: FE FE           CP      $FE                 ; Moving left?
+00CD: 3E 00           LD      A,$00               ; Value of 0 for rack-moving-right (not XOR so flags are unaffected)
+00CF: C2 D3 00        JP      NZ,$00D3            ; Not FE ... keep the value 0 for right
+00D2: 3C              INC     A                   ; It IS FE ... use 1 for left
+00D3: 32 0D 20        LD      (rackDirection),A   ; Store rack direction
+00D6: C9              RET                         ; Done
+*/
+  }
+}
+
+in rom @ 0x00D7 {
+  a = 2;
+  p1.RefAlienDX = a;
+  p2.RefAlienDX = a;
+  ^goto 0x8e4 as func;
+/*
+00D7: 3E 02           LD      A,$02               ; Set ...
+00D9: 32 FB 21        LD      (p1RefAlienDX),A    ; ... player 1 and 2 ...
+00DC: 32 FB 22        LD      (p2RefAlienDX),A    ; ... alien delta to 2 (right 2 pixels)
+00DF: C3 E4 08        JP      $08E4               ; 
+*/
+}
+
+in rom @ 0x00E2 {
+  // More empties
+  const data_e2 : [u8;30] = [
+    0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0
+  ];
+/*
+00E2: 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00F0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+*/
+}
+
+/*
+ This is heavily patched from a previous version of the code. There was a test here to jump to a
+ self-test routine on startup (based on a dip switch). Even the original code padded with zeros
+ to make the next function begin at 0100. Room for expansion?
+*/
+
+in rom @ 0x100 {
+/*
+  2006 holds the index into the alien flag data grid. 2067 holds the MSB of the pointer (21xx or 22xx).
+  If there is an alien exploding time it down. Otherwise draw the alien if it alive (or skip if
+  it isn't). If an alien is drawn (or blank) then the 2000 alien-drawing flag is cleared.
+*/
+  DrawAlien:
+  hl = 0x2002;
+  a = *(hl as *u8);
+  a = a & a;
+  ^goto AExplodeTime if !zero;
+/*
+0100: 21 02 20        LD      HL,$2002            ; Is there an ...
+0103: 7E              LD      A,(HL)              ; ... alien ...
+0104: A7              AND     A                   ; ... exploding?
+0105: C2 38 15        JP      NZ,AExplodeTime     ; Yes ... go time it down and out
+*/
+}
+
+in rom @ 0x108 {
+  push(hl);
+  a = alienCurIndex;
+  l = a;
+  a = playerDataMSB;
+  h = a;
+  a = *(hl as *u8);
+  a = a & a;
+  hl = pop();
+  ^goto (0x136  as func) if zero;
+  hl++;
+  hl++;
+  a = *(hl as *u8);
+  hl++;
+  b = *(hl as *u8);
+  a = a & 0xFE;
+  const rlca : [u8] = [0x07,0x07,0x07];
+  //  a = a <<<<3;
+  e = a;
+  d = 0;
+  hl = 0x1c00;
+  hl = hl + de;
+  swap(de,hl);
+  a = b;
+  a = a & a;
+  const ifz : [u8] = [0xC4, 0x3B, 0x01]; // 012B: C4 3B 01        CALL    NZ,$013B            ; No ... add 30 and use position 1 alien sprites
+  hl = alienPosLSB;
+  b = 0x10;
+  DrawSprite();
+  /*
+  0108: E5              PUSH    HL                  ; 2002 on the stack
+0109: 3A 06 20        LD      A,(alienCurIndex)   ; Get alien index ...
+010C: 6F              LD      L,A                 ; ... for the 21xx or 22xx pointer
+010D: 3A 67 20        LD      A,(playerDataMSB)   ; Get MSB ...
+0110: 67              LD      H,A                 ; ... of data area (21xx or 22xx)
+0111: 7E              LD      A,(HL)              ; Get alien status flag
+0112: A7              AND     A                   ; Is the alien alive?
+0113: E1              POP     HL                  ; HL=2002
+0114: CA 36 01        JP      Z,$0136             ; No alien ... skip drawing alien sprite (but flag done)
+0117: 23              INC     HL                  ; HL=2003 Bump descriptor
+0118: 23              INC     HL                  ; HL=2004 Point to alien's row
+0119: 7E              LD      A,(HL)              ; Get alien type
+011A: 23              INC     HL                  ; HL=2005 Bump descriptor
+011B: 46              LD      B,(HL)              ; Get animation number
+011C: E6 FE           AND     $FE                 ; Translate row to type offset as follows: ...
+011E: 07              RLCA                        ; ... 0,1 -> 32 (type 1) ...
+011F: 07              RLCA                        ; ... 2,3 -> 16 (type 2) ...
+0120: 07              RLCA                        ; ...   4 -> 32 (type 3) on top row
+0121: 5F              LD      E,A                 ; Sprite offset LSB
+0122: 16 00           LD      D,$00               ; MSB is 0
+0124: 21 00 1C        LD      HL,$1C00            ; Position 0 alien sprites
+0127: 19              ADD     HL,DE               ; Offset to sprite type
+0128: EB              EX      DE,HL               ; Sprite offset to DE
+0129: 78              LD      A,B                 ; Animation frame number
+012A: A7              AND     A                   ; Is it position 0?
+012B: C4 3B 01        CALL    NZ,$013B            ; No ... add 30 and use position 1 alien sprites
+012E: 2A 0B 20        LD      HL,(alienPosLSB)    ; Pixel position
+0131: 06 10           LD      B,$10               ; 16 rows in alien sprites
+0133: CD D3 15        CALL    DrawSprite          ; Draw shifted sprite
+*/
+}
+
+in rom @ 0x136 {
+  a = a ^ a;
+  waitOnDraw = a;
+  return;
+}
+
+in rom @ 0x13b {
+  func f_013b() {
+    hl = 0x30;
+    hl +=de;
+    swap(de,hl);
+/*
+0136: AF              XOR     A                   ; Let the ISR routine ...
+0137: 32 00 20        LD      (waitOnDraw),A      ; ... advance the cursor to the next alien
+013A: C9              RET                         ; Out
+*/
+  }
+}
+
+in rom @ 0x0141 {
+  CursorNextAlien:
+/*
+  This is called from the mid-screen ISR to set the cursor for the next alien to draw.
+  When the cursor moves over all aliens then it is reset to the beginning and the reference
+  alien is moved to its next position.
+ 
+  The flag at 2000 keeps this in sync with the alien-draw routine called from the end-screen ISR.
+  When the cursor is moved here then the flag at 2000 is set to 1. This routine will not change
+  the cursor until the alien-draw routine at 100 clears the flag. Thus no alien is skipped.
+*/
+  a = playerOK;
+  a = a & a;
+  return if zero;
+  a = waitOnDraw;
+  a = a & a;
+  return if !zero;
+  a = playerDataMSB;
+  h = a;
+  a = alienCurIndex;
+  d = 2;
+  a++;
+  cmp(a,0x37);
+  const ifz141 : [u8] = [0xcc,0xa1, 0x01]; // CC A1 01 CALL Z,MoveRefAlien 
+
+  l = a;
+  b = *(hl as *u8);
+  b--;
+  ^goto (0x154 as func) if !zero; 
+  alienCurIndex = a;
+  GetAlienCoords();
+  h=c;
+  alienPosLSB = hl;
+  a=l;
+  cmp(a,0x28);
+  ^goto (0x1971 as func) if carry;
+  a=d;
+  alienRow = a;
+  a=1;
+  waitOnDraw = a;
+  return;
+/*
+0141: 3A 68 20        LD      A,(playerOK)        ; Is the player ...
+0144: A7              AND     A                   ; ... blowing up?
+0145: C8              RET     Z                   ; Yes ... ignore the aliens
+0146: 3A 00 20        LD      A,(waitOnDraw)      ; Still waiting on ...
+0149: A7              AND     A                   ; ... this alien to be drawn?
+014A: C0              RET     NZ                  ; Yes ... leave cursor in place
+014B: 3A 67 20        LD      A,(playerDataMSB)   ; Load alien-data ...
+014E: 67              LD      H,A                 ; ... MSB (either 21xx or 22xx)
+014F: 3A 06 20        LD      A,(alienCurIndex)   ; Load the xx part of the alien flag pointer
+0152: 16 02           LD      D,$02               ; When all are gone this triggers 1A1 to return from this stack frame
+0154: 3C              INC     A                   ; Have we drawn all aliens ...
+0155: FE 37           CP      $37                 ; ... at last position?
+0157: CC A1 01        CALL    Z,MoveRefAlien      ; Yes ... move the bottom/right alien and reset index to 0
+015A: 6F              LD      L,A                 ; HL now points to alien flag
+015B: 46              LD      B,(HL)              ; Is alien ...
+015C: 05              DEC     B                   ; ... alive?
+015D: C2 54 01        JP      NZ,$0154            ; No ... skip to next alien
+0160: 32 06 20        LD      (alienCurIndex),A   ; New alien index
+0163: CD 7A 01        CALL    GetAlienCoords      ; Calculate bit position and type for index
+0166: 61              LD      H,C                 ; The calculation returns the MSB in C
+0167: 22 0B 20        LD      (alienPosLSB),HL    ; Store new bit position
+016A: 7D              LD      A,L                 ; Has this alien ...
+016B: FE 28           CP      $28                 ; ... reached the end of screen?
+016D: DA 71 19        JP      C,$1971             ; Yes ... kill the player
+0170: 7A              LD      A,D                 ; This alien's ...
+0171: 32 04 20        LD      (alienRow),A        ; ... row index
+0174: 3E 01           LD      A,$01               ; Set the wait-flag for the ...
+0176: 32 00 20        LD      (waitOnDraw),A      ; ... draw-alien routine to clear
+0179: C9              RET                         ; Done
+*/
+}
+
+in rom @ 0x17A {
+  GetAlienCoords:
+/*
+  Convert alien index in L to screen bit position in C,L.
+  Return alien row index (converts to type) in D.
+*/
+  d = 0;
+  a = l;
+  hl = 0x2009;
+  b = *(hl as *u8);
+  hl++;
+  c = *(hl as *u8);
+  ^while (true) {
+    cmp(a,0xb);
+    goto 0x194 as func if negative;
+    a = a -#0x0b;
+      e = a;
+    a = b;
+    a = a + 0x10;
+    b = a;
+    a = e;
+    d++;
+  }
+/*
+017A: 16 00           LD      D,$00               ; Row 0
+017C: 7D              LD      A,L                 ; Hold onto alien index
+017D: 21 09 20        LD      HL,$2009            ; Get alien X ...
+0180: 46              LD      B,(HL)              ; ... to B
+0181: 23              INC     HL                  ; Get alien y ...
+0182: 4E              LD      C,(HL)              ; ... to C
+0183: FE 0B           CP      $0B                 ; Can we take a full row off of index?
+0185: FA 94 01        JP      M,$0194             ; No ... we have the row
+0188: DE 0B           SBC     A,$0B               ; Subtract off 11 (one whole row)
+018A: 5F              LD      E,A                 ; Hold the new index
+018B: 78              LD      A,B                 ; Add ...
+018C: C6 10           ADD     A,$10               ; ... 16 to bit ...
+018E: 47              LD      B,A                 ; ... position Y (1 row in rack)
+018F: 7B              LD      A,E                 ; Restore tallied index
+0190: 14              INC     D                   ; Next row
+0191: C3 83 01        JP      $0183               ; Keep skipping whole rows
+*/
+}
+
+in rom @ 0x194 {
+  l = b;
+  ^while(true) {
+    a = a & a;
+    return if zero;
+    e = a;
+    a = c;
+    a = a + 0x10;
+    c = a;
+    a = e;
+    a--;
+  }
+/*
+0194: 68              LD      L,B                 ; We have the LSB (the row)
+0195: A7              AND     A                   ; Are we in the right column?
+0196: C8              RET     Z                   ; Yes ... X and Y are right
+0197: 5F              LD      E,A                 ; Hold index
+0198: 79              LD      A,C                 ; Add ...
+0199: C6 10           ADD     A,$10               ; ... 16 to bit ...
+019B: 4F              LD      C,A                 ; ... position X (1 column in rack)
+019C: 7B              LD      A,E                 ; Restore index
+019D: 3D              DEC     A                   ; We adjusted for 1 column
+019E: C3 95 01        JP      $0195               ; Keep moving over column
+*/
+}
+
+in rom @ 0x1A1 {
+  func MoveRefAlien() {
+    d--;
+    ^goto ReturnTwo if zero;
+    hl = 0x2006;
+    *(hl as *u8) = 0;
+    hl++;
+    c = *(hl as *u8);
+    *(hl as *u8) = 0;
+    AddDelta();
+    hl = 0x2005;
+    a = *(hl as *u8);
+    a++;
+    a = a & 0x01;
+    *(hl as *u8) = a;
+    a = a ^ a;
+    hl = 0x2067;
+    h = *(hl as *u8);
+
+/*; The "reference alien" is the bottom left. All other aliens are drawn relative to this
+; reference. This routine moves the reference alien (the delta is set elsewhere) and toggles
+; the animation frame number between 0 and 1.
+;
+01A1: 15              DEC     D                   ; This decrements with each call to move
+01A2: CA CD 01        JP      Z,ReturnTwo         ; Return out of TWO call frames (only used if no aliens left)
+01A5: 21 06 20        LD      HL,$2006            ; Set current alien ...
+01A8: 36 00           LD      (HL),$00            ; ... index to 0
+01AA: 23              INC     HL                  ; Point to DeltaX
+01AB: 4E              LD      C,(HL)              ; Load DX into C
+01AC: 36 00           LD      (HL),$00            ; Set DX to 0
+01AE: CD D9 01        CALL    AddDelta            ; Move alien
+01B1: 21 05 20        LD      HL,$2005            ; Alien animation frame number
+01B4: 7E              LD      A,(HL)              ; Toggle ...
+01B5: 3C              INC     A                   ; ... animation ...
+01B6: E6 01           AND     $01                 ; ... number between ...
+01B8: 77              LD      (HL),A              ; ... 0 and 1
+01B9: AF              XOR     A                   ; Alien index in A is now 0
+01BA: 21 67 20        LD      HL,$2067            ; Restore H ...
+01BD: 66              LD      H,(HL)              ; ... to player data MSB (21 or 22)
+01BE: C9              RET                         ; Done
+*/
+  }
+  nop();
+/*
+01BF: 00 ; ** Why?
+*/
+}
+
+in rom @ 0x1C0 {
+// Initialize the 55 aliens from last to 1st. 1 means alive.
+  func InitAliens() {
+    hl = 0x2100;
+    b = 0x37;
+    ^do {
+    *(hl as *u8) = 1;
+    hl++;
+    b--;
+    } while !zero;
+/*
+01C0: 21 00 21        LD      HL,$2100            ; Start of alien structures (this is the last alien)
+01C3: 06 37           LD      B,$37               ; Count to 55 (that's five rows of 11 aliens)
+01C5: 36 01           LD      (HL),$01            ; Bring alien to live
+01C7: 23              INC     HL                  ; Next alien
+01C8: 05              DEC     B                   ; All done?
+01C9: C2 C5 01        JP      NZ,$01C5            ; No ... keep looping
+01CC: C9              RET                         ; Done
+*/
+}
+
+in rom @ 0x1CD {
+  func ReturnTwo() {
+/*
+  If there are no aliens left on the screen then MoveDrawAlien comes here which returns from the
+  caller's stack frame.
+*/
+    hl = pop();
+/*
+01CD: E1              POP     HL                  ; Drop return to caller
+01CE: C9              RET                         ; Return to caller's caller
+*/
+  }
+}
+  
+  
+/********
+ * Misc
+ ********/
+
+in rom @ 0x1CF {
+/*
+  Draw a 1px line across the player's stash at the bottom of the screen.
+*/
+  #[fallthrough] func DrawBottomLine() {
+    a = 1;
+    b = 0xe0;
+    hl = 0x2402;
+    ^goto 0x14CC as func;
+/*
+01CF: 3E 01           LD      A,$01               ; Bit 1 set ... going to draw a 1-pixel stripe down left side
+01D1: 06 E0           LD      B,$E0               ; All the way down the screen
+01D3: 21 02 24        LD      HL,$2402            ; Screen coordinates (3rd byte from upper left)
+01D6: C3 CC 14        JP      $14CC               ; Draw line down left side
+*/
+  }
+}
+in rom @ 0x1D9 {
+/*
+  HL points to descriptor: DX DY XX YY except DX is already loaded in C
+  ** Why the "already loaded" part? Why not just load it here?
+*/
+ func AddDelta() {
+   hl++;
+   b = *(hl as *u8);
+   hl++;
+   a = c;
+   a = a + *(hl as *u8);
+   *(hl as *u8) = a;
+   hl++;
+   a = b;
+   a = a + *(hl as *u8);
+   *(hl as *u8) = a;
+/*
+01D9: 23              INC     HL                  ; We loaded delta-x already ... skip over it
+01DA: 46              LD      B,(HL)              ; Get delta-y
+01DB: 23              INC     HL                  ; Skip over it
+01DC: 79              LD      A,C                 ; Add delta-x ...
+01DD: 86              ADD     A,(HL)              ; ... to x
+01DE: 77              LD      (HL),A              ; Store new x
+01DF: 23              INC     HL                  ; Skip to y
+01E0: 78              LD      A,B                 ; Add delta-y ...
+01E1: 86              ADD     A,(HL)              ; ... to y
+01E2: 77              LD      (HL),A              ; Store new y
+01E3: C9              RET                         ; Done
+*/
+}
+
+in rom @ 0x1E4 {
+/*
+  Block copy ROM mirror 1B00-1BBF to initialize RAM at 2000-20BF.
+*/
+  #[fallthrough] func CopyRAMMirror() {
+    b = 0xC0;
+/*
+01E4: 06 C0           LD      B,$C0               ; Number of bytes
+*/
+  }
+  de = 0x1B00;
+  hl = 0x2000;
+  ^goto BlockCopy;
+/*
+01E6: 11 00 1B        LD      DE,$1B00            ; RAM mirror in ROM
+01E9: 21 00 20        LD      HL,$2000            ; Start of RAM
+01EC: C3 32 1A        JP      BlockCopy           ; Copy [DE]->[HL] and return
+*/
+}
+  
+/************************
+ * Copy/Restore Shields *
+ ************************/
+
+in rom @ 0x1EF {
+/*
+  Draw the shields for player 1 (draws it in the buffer in the player's data area).
+*/
+  #[fallthrough] func DrawShieldPl1() {
+    hl = 0x2142;
+    ^goto DrawShield;
+/*
+01EF: 21 42 21        LD      HL,$2142            ; Player 1 shield buffer (remember between games in multi-player)
+01F2: C3 F8 01        JP      $01F8               ; Common draw point
+*/
+  }
+/*
+; Draw the shields for player 2 (draws it in the buffer in the player's data area).
+*/
+  #[fallthrough] func DrawShieldPl2() {
+    hl = 0x2242;
+/*
+01F5: 21 42 22        LD      HL,$2242            ; Player 2 shield buffer (remember between games in multi-player)
+*/
+  }
+  DrawShield:
+  c = 4;
+  de = 0x1d20;
+  ^do {
+  push(de);
+  b = 0x2c;
+  BlockCopy();
+  de = pop();
+  c--;
+  } while !zero;
+  return;
+/*
+01F8: 0E 04           LD      C,$04               ; Going to draw 4 shields
+01FA: 11 20 1D        LD      DE,$1D20            ; Shield pixel pattern
+01FD: D5              PUSH    DE                  ; Hold the start for the next shield
+01FE: 06 2C           LD      B,$2C               ; 44 bytes to copy
+0200: CD 32 1A        CALL    BlockCopy           ; Block copy DE to HL (B bytes)
+0203: D1              POP     DE                  ; Restore start of shield pattern
+0204: 0D              DEC     C                   ; Drawn all shields?
+0205: C2 FD 01        JP      NZ,$01FD            ; No ... go draw them all
+0208: C9              RET             
+*/
+}
+  
+in rom @ 0x209 {
+/*
+; Copy shields on the screen to player 1's data area.
+*/
+  #[fallthrough] func RememberShields1() {
+    a = 1;
+    ^goto 0x21b as func;
+/*
+0209: 3E 01           LD      A,$01               ; Not zero means remember
+020B: C3 1B 02        JP      $021B               ; Shuffle-shields player 1
+*/
+  }
+
+/*
+; Copy shields on the screen to player 2's data area.
+*/
+  #[fallthrough] func RememberShields2() {
+    a = 1;
+    ^goto 0x214 as func;
+/*
+020E: 3E 01           LD      A,$01               ; Not zero means remember
+0210: C3 14 02        JP      $0214               ; Shuffle-shields player 2
+*/
+  }
+/*
+; Copy shields from player 2's data area to screen.
+*/
+  #[fallthrough] func RestoreShields2() {
+    a = a ^ a;
+    de = 0x2242;
+    ^goto CopyShields;
+  }
+/*
+0213: AF              XOR     A                   ; Zero means restore
+0214: 11 42 22        LD      DE,$2242            ; Player 2 shield buffer (remember between games in multi-player)
+0217: C3 1E 02        JP      CopyShields         ; Shuffle-shields player 2
+*/
+
+/*
+; Copy shields from player 1's data area to screen.
+*/
+    #[fallthrough] func RestoreShields1() {
+      a = a ^ a;
+      de = 0x2142;
+    }
+/*
+021A: AF              XOR     A                   ; Zero means restore
+021B: 11 42 21        LD      DE,$2142            ; Player 1 shield buffer (remember between games in multi-player)
+*/
+
+/*      
+; A is 1 for screen-to-buffer, 0 for to buffer-to-screen
+; HL is screen coordinates of first shield. There are 23 rows between shields.
+; DE is sprite buffer in memory.
+*/
+CopyShields:
+  tmp2081 = a;
+  bc = 0x1602;
+  hl = 0x2806;
+  a = 4;
+  push(af);
+  push(bc);
+  a = tmp2081;
+  a = a & a;
+  ^goto 0x242 as func if !zero;
+  RestoreShields();
+  bc = pop();
+  af = pop();
+  a--;
+  return if zero;
+  push(de);
+  de = 0x2e0;
+  hl = hl + de;
+  de = pop();
+  ^goto 0x229 as func;
+/*
+021E: 32 81 20        LD      (tmp2081),A         ; Remember copy/restore flag
+0221: 01 02 16        LD      BC,$1602            ; 22 rows, 2 bytes/row (for 1 shield pattern)
+0224: 21 06 28        LD      HL,$2806            ; Screen coordinates
+0227: 3E 04           LD      A,$04               ; Four shields to move
+0229: F5              PUSH    AF                  ; Hold shield count
+022A: C5              PUSH    BC                  ; Hold sprite-size
+022B: 3A 81 20        LD      A,(tmp2081)         ; Get back copy/restore flag
+022E: A7              AND     A                   ; Not zero ...
+022F: C2 42 02        JP      NZ,$0242            ; ... means remember shidles
+0232: CD 69 1A        CALL    RestoreShields      ; Restore player's shields
+0235: C1              POP     BC                  ; Get back sprite-size
+0236: F1              POP     AF                  ; Get back shield count
+0237: 3D              DEC     A                   ; Have we moved all shields?
+0238: C8              RET     Z                   ; Yes ... out
+0239: D5              PUSH    DE                  ; Hold sprite buffer
+023A: 11 E0 02        LD      DE,$02E0            ; Add 2E0 (23 rows) to get to ...
+023D: 19              ADD     HL,DE               ; ... next shield on screen
+023E: D1              POP     DE                  ; restore sprite buffer
+023F: C3 29 02        JP      $0229               ; Go back and do all
+*/
+  RememberShields();
+  ^goto 0x235 as func;
+/*
+0242: CD 7C 14        CALL    RememberShields     ; Remember player's shields
+0245: C3 35 02        JP      $0235               ; Continue with next shield
+*/
+}
+
+  
+// Game Objects *
+  
+in rom @ 0x248 {
+/*
+; Process game objects. Each game object has a 16 byte structure. The handler routine for the object
+; is at xx03 and xx04 of the structure. The pointer to xx04 is pushed onto the stack before calling
+; the handler.
+;
+; All game objects (except task 0 ... the player) are called at the mid-screen and end-screen renderings.
+; Each object decides when to run based on its Y (not rotated) coordinate. If an object is on the lower
+; half of the screen then it does its work when the beam is at the top of the screen. If an object is
+; on the top of the screen then it does its work when the beam is at the bottom. This keeps the
+; object from updating while it is being drawn which would result in an ugly flicker.
+;
+;
+; The player is only processed at the mid-screen interrupt. I am not sure why.
+;
+; The first three bytes of the structure are used for status and timers.
+;
+; If the first byte is FF then the end of the game-task list has been reached.
+; If the first byte is FE then the object is skipped.
+;
+; If the first-two bytes are non-zero then they are treated like a two-byte counter
+; and decremented as such. The 2nd byte is the LSB (moves the fastest).
+;
+; If the first-two bytes are zero then the third byte is treated as an additional counter. It
+; is decremented as such.
+;
+; When all three bytes reach zero the task is executed.
+;
+; The third-byte-counter was used as a speed-governor for the player's object, but evidently even the slowest
+; setting was too slow. It got changed to 0 (fastest possible).
+*/
+RunGameObjs:
+  hl = 0x2010;
+  f_024b:
+
+  a = *(hl as *u8);
+  cmp(a,0xff);
+  return if zero;
+  cmp(a,0xfe);
+  ^goto 0x281 as func if zero;
+  hl++;
+  b = *(hl as *u8);
+  c = a;
+  a = a | b;
+  a = c;
+  ^goto 0x277 as func if !zero;  
+/*
+0248: 21 10 20        LD      HL,$2010            ; First game object (active player)
+024B: 7E              LD      A,(HL)              ; Have we reached the ...
+024C: FE FF           CP      $FF                 ; ... end of the object list?
+024E: C8              RET     Z                   ; Yes ... done
+024F: FE FE           CP      $FE                 ; Is object active?
+0251: CA 81 02        JP      Z,$0281             ; No ... skip it
+0254: 23              INC     HL                  ; xx01
+0255: 46              LD      B,(HL)              ; First byte to B
+0256: 4F              LD      C,A                 ; Hold 1st byte
+0257: B0              OR      B                   ; OR 1st and 2nd byte
+0258: 79              LD      A,C                 ; Restore 1st byte
+0259: C2 77 02        JP      NZ,$0277            ; If word at xx00,xx02 is non zero then decrement it
+*/
+  hl++;
+  a = *(hl as *u8);
+  a = a & a;
+  ^goto 0x288 as func if !zero;
+  hl++;
+  e = *(hl as *u8);
+  hl++;
+  d = *(hl as *u8);
+  push(hl);
+  swap(de,hl);
+  push(hl);
+  hl = 0x026F;
+  const d026c : u8 = 0xe3;//  swap(sp,hl);
+  push(de);
+  ^goto (hl as func);
+  hl = pop();
+  de = 0xc;
+  hl+=de;
+  ^goto 0x24b as func;
+  /*
+025C: 23              INC     HL                  ; xx02
+025D: 7E              LD      A,(HL)              ; Get byte counter
+025E: A7              AND     A                   ; Is it 0?
+025F: C2 88 02        JP      NZ,$0288            ; No ... decrement byte counter at xx02
+0262: 23              INC     HL                  ; xx03
+0263: 5E              LD      E,(HL)              ; Get handler address LSB
+0264: 23              INC     HL                  ; xx04
+0265: 56              LD      D,(HL)              ; Get handler address MSB
+0266: E5              PUSH    HL                  ; Remember pointer to MSB
+0267: EB              EX      DE,HL               ; Handler address to HL
+0268: E5              PUSH    HL                  ; Now to stack (making room for indirect call)
+0269: 21 6F 02        LD      HL,$026F            ; Return address to 026F
+026C: E3              EX      (SP),HL             ; Return address (026F) now on stack. Handler in HL.
+026D: D5              PUSH    DE                  ; Push pointer to data struct (xx04) for handler to use
+026E: E9              JP      (HL)                ; Run object's code (will return to next line)
+026F: E1              POP     HL                  ; Restore pointer to xx04
+0270: 11 0C 00        LD      DE,$000C            ; Offset to next ...
+0273: 19              ADD     HL,DE               ; ... game task (C+4=10)
+0274: C3 4B 02        JP      $024B               ; Do next game task
+*/
+}
+
+in rom @ 0x277 {
+// Word at xx00 and xx01 is non-zero. Decrement it and move to next task.
+  b--;
+  b++;
+  ^goto 0x27d as func if !zero;
+  a--;
+  b--;
+  *(hl as *u8) = b;
+  hl--;
+  *(hl as *u8) = a;
+  
+/*
+0277: 05              DEC     B                   ; Decrement ...
+0278: 04              INC     B                   ; ... two ...
+0279: C2 7D 02        JP      NZ,$027D            ; ... byte ...
+027C: 3D              DEC     A                   ; ... value ...
+027D: 05              DEC     B                   ; ... at ...
+027E: 70              LD      (HL),B              ; ... xx00 ...
+027F: 2B              DEC     HL                  ; ... and ...
+0280: 77              LD      (HL),A              ; ... xx01
+*/
+
+  de = 0x10;
+  hl+=de;
+  ^goto 0x24b as func;  
+/*
+0281: 11 10 00        LD      DE,$0010            ; Next ...
+0284: 19              ADD     HL,DE               ; ... object descriptor
+0285: C3 4B 02        JP      $024B               ; Keep processing game objects
+*/
+}
+
+in rom @ 0x765 {
+  WaitForStart:
+  a = 0x01;
+
+  /*; Wait for player 1 start button press
+0765: 3E 01           LD      A,$01               ; Tell ISR that we ...
+0767: 32 93 20        LD      (waitStartLoop),A   ; ... have started to wait
+076A: 31 00 24        LD      SP,$2400            ; Reset stack
+076D: FB              EI                          ; Enable interrupts
+076E: CD 79 19        CALL    $1979               ; Suspend game tasks
+0771: CD D6 09        CALL    ClearPlayField      ; Clear center window
+0774: 21 13 30        LD      HL,$3013            ; Screen coordinates
+0777: 11 F3 1F        LD      DE,$1FF3            ; "PRESS"
+077A: 0E 04           LD      C,$04               ; Message length
+077C: CD F3 08        CALL    PrintMessage        ; Print it
+077F: 3A EB 20        LD      A,(numCoins)        ; Number of credits
+0782: 3D              DEC     A                   ; Set flags
+0783: 21 10 28        LD      HL,$2810            ; Screen coordinates
+0786: 0E 14           LD      C,$14               ; Message length
+0788: C2 57 08        JP      NZ,$0857            ; Take 1 or 2 player start
+078B: 11 CF 1A        LD      DE,$1ACF            ; "ONLY 1PLAYER BUTTON "
+078E: CD F3 08        CALL    PrintMessage        ; Print message
+0791: DB 01           IN      A,(INP1)            ; Read player controls
+0793: E6 04           AND     $04                 ; 1Player start button?
+0795: CA 7F 07        JP      Z,$077F             ; No ... wait for button or credit
+*/
+}
+
+in rom @ 0x886 {
+  GetAlRefPtr:
+  a = playerDataMSB;
+  /*; Get pointer to player's alien ref coordiantes
+0886: 3A 67 20        LD      A,(playerDataMSB)   ; Player data MSB (21 or 22)
+0889: 67              LD      H,A                 ; To H
+088A: 2E FC           LD      L,$FC               ; 21FC or 22FC ... alien coordinates
+088C: C9              RET     
+*/
+}
+
+in rom @ 0x913 {
+  TimeToSaucer:
+  a = refAlienYr8;
+  /*
+0913: 3A 09 20        LD      A,(refAlienYr)      ; Reference alien's X coordinate
+0916: FE 78           CP      $78                 ; Don't process saucer timer ... ($78 is 1st rack Yr)
+0918: D0              RET     NC                  ; ... unless aliens are closer to bottom
+0919: 2A 91 20        LD      HL,(tillSaucerLSB)  ; Time to saucer
+091C: 7D              LD      A,L                 ; Is it time ...
+091D: B4              OR      H                   ; ... for a saucer
+091E: C2 29 09        JP      NZ,$0929            ; No ... skip flagging
+0921: 21 00 06        LD      HL,$0600            ; Reset timer to 600 game loops
+0924: 3E 01           LD      A,$01               ; Flag a ...
+0926: 32 83 20        LD      (saucerStart),A     ; ... saucer sequence
+0929: 2B              DEC     HL                  ; Decrement the ...
+092A: 22 91 20        LD      (tillSaucerLSB),HL  ; ... time-to-saucer
+092D: C9              RET    
+*/
+}
+
+
+in rom @ 0x9B2 {
+  func DrawHexByte{
+    //; Display 2 digits in A to screen at HL
+    push(de);
+    push(af);
+    a >>>>= 4;
+    a = a & 0x0F;
+
+    //  09BA: CD C5 09        CALL    $09C5               ; To screen at HL
+    af = pop();
+    //  09BD: F1              POP     AF                  ; Restore digit
+    a = a & 0x0f;
+    /*09BE: E6 0F           AND     $0F                 ; Mask out upper digit
 09C0: CD C5 09        CALL    $09C5               ; To screen
 09C3: D1              POP     DE                  ; Restore
 09C4: C9              RET                         ; Done
@@ -93,7 +1103,170 @@ func DrawHexByte{
 09C5: C6 1A           ADD     A,$1A               ; Bump to number characters
 09C7: C3 FF 08        JP      DrawChar            ; Continue ...
 */
+  }
 }
+
+in rom @ 0xABF {
+  func ISRSplTasks() {
+    /*; Different types of splash tasks managed by ISR in splash screens. The ISR
+; calls this if in splash-mode. These may have been bit flags to allow all 3
+; at the same time. Maybe it is just easier to do a switch with a rotate-to-carry.
+;
+0ABF: 3A C1 20        LD      A,(isrSplashTask)   ; Get the ISR task number
+0AC2: 0F              RRCA                        ; In demo play mode?
+0AC3: DA BB 0A        JP      C,SplashDemo        ; 1: Yes ... go do game play (without sound)
+0AC6: 0F              RRCA                        ; Moving little alien from point A to B?
+0AC7: DA 68 18        JP      C,SplashSprite      ; 2: Yes ... go move little alien from point A to B
+0ACA: 0F              RRCA                        ; Shooting extra "C" with squiggly shot?
+0ACB: DA AB 0A        JP      C,SplashSquiggly    ; 4: Yes ... go shoot extra "C" in splash
+0ACE: C9              RET                         ; No task to do
+*/
+  }
+}
+
+in rom @ 0x1474 {
+  CnvtPixNumber:
+  a=l;
+  /*
+; Convert pixel number in HL to screen coordinate and shift amount.
+; HL gets screen coordinate.
+; Hardware shift-register gets amount.
+1474: 7D              LD      A,L                 ; Get X coordinate
+1475: E6 07           AND     $07                 ; Shift by pixel position
+1477: D3 02           OUT     (SHFTAMNT),A        ; Write shift amount to hardware
+1479: C3 47 1A        JP      ConvToScr           ; HL = HL/8 + 2000 (screen coordinate)
+*/
+}
+  
+in rom @ 0x147C {
+  
+/*
+; In a multi-player game the player's shields are block-copied to and from RAM between turns.
+; HL = screen pointer
+; DE = memory buffer
+; B = number of rows
+; C = number of columns
+*/
+  func RememberShields() {
+    ^do {
+      push(bc);
+      push(hl);
+      ^do {
+        a = *(hl as *u8);
+        *(de as *u8) = a;
+        de++;
+        hl++;
+        c--;
+      } while !zero;
+      hl = pop();
+      bc = 0x20;
+      hl+=bc;
+      bc = pop();
+      b--;
+    } while !zero;
+/*
+147C: C5              PUSH    BC                  ; Hold counter
+147D: E5              PUSH    HL                  ; Hold start
+147E: 7E              LD      A,(HL)              ; From sprite ... (should be DE)
+147F: 12              LD      (DE),A              ; ... to screen ... (should be HL)
+1480: 13              INC     DE                  ; Next in sprite
+1481: 23              INC     HL                  ; Next on screen
+1482: 0D              DEC     C                   ; All columns done?
+1483: C2 7E 14        JP      NZ,$147E            ; No ... do multi columns
+1486: E1              POP     HL                  ; Restore screen start
+1487: 01 20 00        LD      BC,$0020            ; Add 32 ...
+148A: 09              ADD     HL,BC               ; ... to get to next row
+148B: C1              POP     BC                  ; Pop the counters
+148C: 05              DEC     B                   ; All rows done?
+148D: C2 7C 14        JP      NZ,RememberShields  ; No ... do multi rows
+1490: C9              RET                         ; Done
+*/
+  }
+}
+in rom @ 0x1538 {
+  AExplodeTime:
+  hl = 0x2003;
+  /*; Time down the alien explosion. Remove when done.
+1538: 21 03 20        LD      HL,$2003            ; Decrement alien explosion ...
+153B: 35              DEC     (HL)                ; ... timer
+153C: C0              RET     NZ                  ; Not done  ... out
+153D: 2A 64 20        LD      HL,(expAlienYr)     ; Pixel pointer for exploding alien
+1540: 06 10           LD      B,$10               ; 16 row pixel
+1542: CD 24 14        CALL    EraseSimpleSprite   ; Clear the explosion sprite from the screen
+1545: 3E 04           LD      A,$04               ; 4 means that ...
+1547: 32 25 20        LD      (plyrShotStatus),A  ; ... alien has exploded (remove from active duty)
+;
+154A: AF              XOR     A                   ; Turn off ...
+154B: 32 02 20        LD      (alienIsExploding),A; ... alien-is-blowing-up flag
+154E: 06 F7           LD      B,$F7               ; Turn off ...
+1550: C3 DC 19        JP      SoundBits3Off       ; ... alien exploding sound
+
+1553: 00            
+*/
+}
+
+in rom @ 0x15D3 {
+  DrawSprite:
+  CnvtPixNumber();
+  /*; Draw sprite at [DE] to screen at pixel position in HL
+; The hardware shift register is used in converting pixel positions
+; to screen coordinates.
+15D3: CD 74 14        CALL    CnvtPixNumber       ; Convert pixel number to screen/shift
+15D6: E5              PUSH    HL                  ; Preserve screen coordinate
+15D7: C5              PUSH    BC                  ; Hold for a second
+15D8: E5              PUSH    HL                  ; Hold for a second
+15D9: 1A              LD      A,(DE)              ; From sprite data
+15DA: D3 04           OUT     (SHFT_DATA),A       ; Write data to shift register
+15DC: DB 03           IN      A,(SHFT_IN)         ; Read back shifted amount
+15DE: 77              LD      (HL),A              ; Shifted sprite to screen
+15DF: 23              INC     HL                  ; Adjacent cell
+15E0: 13              INC     DE                  ; Next in sprite data
+15E1: AF              XOR     A                   ; 0
+15E2: D3 04           OUT     (SHFT_DATA),A       ; Write 0 to shift register
+15E4: DB 03           IN      A,(SHFT_IN)         ; Read back remainder of previous
+15E6: 77              LD      (HL),A              ; Write remainder to adjacent
+15E7: E1              POP     HL                  ; Old screen coordinate
+15E8: 01 20 00        LD      BC,$0020            ; Offset screen ...
+15EB: 09              ADD     HL,BC               ; ... to next row
+15EC: C1              POP     BC                  ; Restore count
+15ED: 05              DEC     B                   ; All done?
+15EE: C2 D7 15        JP      NZ,$15D7            ; No ... do all
+15F1: E1              POP     HL                  ; Restore HL
+15F2: C9              RET                         ; Done
+*/
+}
+
+in rom @ 0x1740 {
+  TimeFleetSound:
+  hl = 0x209B;
+  /*
+; This called from the ISR times down the fleet and sets the flag at 2095 if
+; the fleet needs a change in sound handling (new delay, new sound)
+1740: 21 9B 20        LD      HL,$209B            ; Pointer to hold time for fleet
+1743: 35              DEC     (HL)                ; Decrement hold time
+1744: CC 6D 17        CALL    Z,$176D             ; If 0 turn fleet movement sound off
+1747: 3A 68 20        LD      A,(playerOK)        ; Is player OK?
+174A: A7              AND     A                   ; 1  means OK
+174B: CA 6D 17        JP      Z,$176D             ; Player not OK ... fleet movement sound off and out
+174E: 21 96 20        LD      HL,$2096            ; Current time on fleet sound
+1751: 35              DEC     (HL)                ; Count down
+1752: C0              RET     NZ                  ; Not time to change sound ... out
+1753: 21 98 20        LD      HL,$2098            ; Current sound port 3 value
+1756: 7E              LD      A,(HL)              ; Get value
+1757: D3 05           OUT     (SOUND2),A          ; Set sounds
+1759: 3A 82 20        LD      A,(numAliens)       ; Number of aliens on active screen
+175C: A7              AND     A                   ; Is it zero?
+175D: CA 6D 17        JP      Z,$176D             ; Yes ... turn off fleet movement sound and out
+1760: 2B              DEC     HL                  ; (2097) Point to fleet timer reload
+1761: 7E              LD      A,(HL)              ; Get fleet delay value
+1762: 2B              DEC     HL                  ; (2096) Point to fleet timer
+1763: 77              LD      (HL),A              ; Reload the timer
+1764: 2B              DEC     HL                  ; Point to change-sound
+1765: 36 01           LD      (HL),$01            ; (2095) time to change sound
+1767: 3E 04           LD      A,$04               ; Set hold ...
+1769: 32 9B 20        LD      (fleetSndHold),A    ; ... time for fleet sound
+176C: C9              RET                         ; Done
+*/
 }
 
 in rom @ 0x17CD {
@@ -103,19 +1276,90 @@ in rom @ 0x17CD {
 in rom @ 0x18D4 {
   init:
   sp = 0xC400;
-  
+  b = 0;
+  //  f_01E6();
+  //  DrawStatus();
+  a = 0x08;
+  //  aShotReloadRate = a;
+  //  ^goto l_0AEA;
+
 }
 
 in rom @ 0x1947 {
-func DrawNumCredits{
+  func DrawNumCredits{
 
-  a = (numCoins);
-  hl = 0x3C01;
-//  goto DrawHexByte;
-}
+    a = (numCoins);
+    hl = 0x3C01;
+    //  goto DrawHexByte;
+  }
 }
 //; Display number of credits on screen
 //1947: 3A EB 20        LD      A,(numCoins)        ; Number of credits
 //194A: 21 01 3C        LD      HL,$3C01            ; Screen coordinates
 //194D: C3 B2 09        JP      DrawHexByte         ; Character to screen
+
+in rom @ 0x1A32 {
+//    BlockCopy:
+/*
+; Copy from [DE] to [HL] (b bytes)
+*/
+  func BlockCopy() {
+    a = *(de as *u8);
+  }
+/*1A32: 1A              LD      A,(DE)              ; Copy from [DE] to ...
+1A33: 77              LD      (HL),A              ; ... [HL]
+1A34: 23              INC     HL                  ; Next destination
+1A35: 13              INC     DE                  ; Next source
+1A36: 05              DEC     B                   ; Count in B
+1A37: C2 32 1A        JP      NZ,BlockCopy        ; Do all
+1A3A: C9              RET                         ; Done
+*/
+}
   
+in rom @ 0x1A69 {
+/*
+; Logically OR the player's shields back onto the playfield
+; DE = sprite
+; HL = screen
+; C = bytes per row
+; B = number of rows
+*/
+  func RestoreShields() {
+    ^do {
+      push(bc);
+      push(hl);
+      ^do {
+        a = *(de as *u8);
+        a = a | *(hl as *u8);
+        *(hl as *u8) = a;
+        de++;
+        hl++;
+        c--;
+      } while !zero;
+
+      hl = pop();
+      bc = 0x20;
+      hl +=bc;
+      bc = pop();
+      b--;
+    } while !zero;
+/*
+1A69: C5              PUSH    BC                  ; Preserve BC
+1A6A: E5              PUSH    HL                  ; Hold for a bit
+1A6B: 1A              LD      A,(DE)              ; From sprite
+1A6C: B6              OR      (HL)                ; OR with screen
+1A6D: 77              LD      (HL),A              ; Back to screen
+1A6E: 13              INC     DE                  ; Next sprite
+1A6F: 23              INC     HL                  ; Next on screen
+1A70: 0D              DEC     C                   ; Row done?
+1A71: C2 6B 1A        JP      NZ,$1A6B            ; No ... do entire row
+1A74: E1              POP     HL                  ; Original start
+1A75: 01 20 00        LD      BC,$0020            ; Bump HL by ...
+1A78: 09              ADD     HL,BC               ; ... one screen row
+1A79: C1              POP     BC                  ; Restore
+1A7A: 05              DEC     B                   ; Row counter
+1A7B: C2 69 1A        JP      NZ,RestoreShields   ; Do all rows
+1A7E: C9              RET                         
+*/
+   }
+}

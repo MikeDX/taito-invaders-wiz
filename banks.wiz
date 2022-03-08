@@ -1,0 +1,4 @@
+
+bank rom @ 0x0000 : [constdata; 8192];
+bank ram @ 0x2000 : [vardata; 1024];
+bank screen @ 0x2400 : [vardata; 0x1C00];

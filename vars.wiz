@@ -1,0 +1,35 @@
+
+//namespace bw8080 {
+var waitOnDraw @ 0x2000 : u8;
+var alienRow @ 0x2004 : u8;
+var alienCurIndex @ 0x2006 : u8;
+var refAlienDXr @ 0x2008 : u8;
+var refAlienYr8 @ 0x2009 : u8;
+var refAlienYr16 @ 0x2009 : u16;
+var alienPosLSB @ 0x200B : u16; // should be u8
+var rackDirection @ 0x200D : u8;
+var obj2TimerExtra @ 0x2032 : u8;
+var playerDataMSB @ 0x2067 : u8;
+var playerOK @ 0x2068 : u8;
+var vblankStatus @ 0x2072 : u8;
+var shotSync @ 0x2080 : u8;
+var tmp2081 @ 0x2081 : u8;
+var waitStartLoop @ 0x2093 : u8;
+var isrDelay @ 0x20C0 : u8;
+var isrSplashTask @ 0x20C1 : u8;
+var coinSwitch @ 0x20EA : u8;
+var numCoins @ 0x20EB : u8;
+var suspendPlay @ 0x20E9 : u8;
+var gameMode @ 0x20EF : u8;
+
+namespace io {
+  let INP1 = 0x01;
+}
+
+namespace p1 {
+  var RefAlienDX @ 0x21FB : u8;
+}
+
+namespace p2 {
+  var RefAlienDX @ 0x22FB : u8;
+}
