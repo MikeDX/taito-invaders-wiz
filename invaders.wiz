@@ -1762,6 +1762,166 @@ in rom @ 0x4AB {
 */
 }
   
+in rom @ 0x4B6 {
+/*
+; Game object 3: Alien plunger-shot
+; This is skipped if there is only one alien left on the screen.
+*/
+
+  GameObj3:
+  hl = pop();
+  a = skipPlunger;
+  a = a & a;
+  return if !zero;
+  a = shotSync;
+  cmp(a,1);
+  return if !zero;
+/*
+04B6: E1              POP     HL                  ; Game object data
+04B7: 3A 6E 20        LD      A,(skipPlunger)     ; One alien left? Skip plunger shot?
+04BA: A7              AND     A                   ; Check
+04BB: C0              RET     NZ                  ; Yes. Only one alien. Skip this shot.
+04BC: 3A 80 20        LD      A,(shotSync)        ; Sync flag (copied from GO-2's timer value)
+04BF: FE 01           CP      $01                 ; GO-2 and GO-4 are idle?
+04C1: C0              RET     NZ                  ; No ... only one shot at a time
+*/
+  de = 0x2045;
+  a = 0xed;
+  ToShotStruct();
+  a = rolShotStepCnt;
+  otherShot1 = a;
+  a = squShotStepCnt;
+  otherShot2 = a;
+  HandleAlienShot();
+  a = aShotCFirLSB;
+  cmp(a,0x10);
+  ^if !carry {
+    a = *(0x1B48 as *u8);
+    aShotCFirLSB = a;
+  }
+  a = aShotBlowCnt;
+  a = a & a;
+  hl = 0x2045;
+  ^goto FromShotStruct if !zero;
+  
+/*
+04C2: 11 45 20        LD      DE,$2045            ; Plunger alien shot data structure
+04C5: 3E ED           LD      A,$ED               ; Last picture of "plunger" alien shot
+04C7: CD 50 05        CALL    ToShotStruct        ; Copy the plunger alien to the active structure
+04CA: 3A 36 20        LD      A,(rolShotStepCnt)  ; Step count from rolling-shot
+04CD: 32 70 20        LD      (otherShot1),A      ; Hold it
+04D0: 3A 56 20        LD      A,(squShotStepCnt)  ; Step count from squiggly shot
+04D3: 32 71 20        LD      (otherShot2),A      ; Hold it
+04D6: CD 63 05        CALL    HandleAlienShot     ; Handle active shot structure
+04D9: 3A 76 20        LD      A,(aShotCFirLSB)    ; LSB of column-firing table
+04DC: FE 10           CP      $10                 ; Been through all entries in the table?
+04DE: DA E7 04        JP      C,$04E7             ; Not yet ... table is OK
+04E1: 3A 48 1B        LD      A,($1B48)           ; Been through all ..
+04E4: 32 76 20        LD      (aShotCFirLSB),A    ; ... so reset pointer into firing-column table
+04E7: 3A 78 20        LD      A,(aShotBlowCnt)    ; Get the blow up timer
+04EA: A7              AND     A                   ; Zero means shot is done
+04EB: 21 45 20        LD      HL,$2045            ; Plunger shot data
+04EE: C2 5B 05        JP      NZ,FromShotStruct   ; If shot is still running, go copy the updated data and out
+*/
+  
+  de = 0x1B40;
+  hl = 0x2040;
+  b = 0x10;
+  BlockCopy();
+/*
+04F1: 11 40 1B        LD      DE,$1B40            ; Reload ...
+04F4: 21 40 20        LD      HL,$2040            ; ... object ...
+04F7: 06 10           LD      B,$10               ; ... structure ...
+04F9: CD 32 1A        CALL    BlockCopy           ; ... from mirror
+*/
+  a = numAliens;
+  a--;
+  ^if zero {
+    a = 1;
+    skipPlunger = a;
+  }
+  hl = aShotCFir;
+  ^goto 0x67E as func;
+/*
+04FC: 3A 82 20        LD      A,(numAliens)       ; Number of aliens on screen
+04FF: 3D              DEC     A                   ; Is there only one left?
+0500: C2 08 05        JP      NZ,$0508            ; No ... move on
+0503: 3E 01           LD      A,$01               ; Disable plunger shot ...
+0505: 32 6E 20        LD      (skipPlunger),A     ; ... when only one alien remains
+0508: 2A 76 20        LD      HL,(aShotCFirLSB)   ; Set the plunger shot's ...
+050B: C3 7E 06        JP      $067E               ; ... column-firing pointer data
+*/
+}
+
+  
+in rom @ 0x50E {
+// Game task 4 when splash screen alien is shooting extra "C" with a squiggly shot
+  hl = pop();
+/*
+050E: E1              POP     HL                  ; Ignore the task data pointer passed on stack
+*/
+
+// GameObject 4 comes here if processing a squiggly shot
+  de = 0x2055;
+  a = 0xDB;
+  ToShotStruct();
+  a = pluShotStepCnt;
+  otherShot1 = a;
+  a = rolShotStepCnt;
+  otherShot2 = a;
+  HandleAlienShot();
+  a = aShotCFirLSB;
+  cmp(a,0x15);
+  ^if !carry {
+    a = *(0x1b58 as *u8);
+    aShotCFirLSB = a;
+  }
+  a = aShotBlowCnt;
+  a = a & a;
+  hl = 0x2055;
+  ^goto FromShotStruct if !zero;
+/*
+050F: 11 55 20        LD      DE,$2055            ; Squiggly shot data structure
+0512: 3E DB           LD      A,$DB               ; LSB of last byte of picture
+0514: CD 50 05        CALL    ToShotStruct        ; Copy squiggly shot to
+0517: 3A 46 20        LD      A,(pluShotStepCnt)  ; Get plunger ...
+051A: 32 70 20        LD      (otherShot1),A      ; ... step count
+051D: 3A 36 20        LD      A,(rolShotStepCnt)  ; Get rolling ...
+0520: 32 71 20        LD      (otherShot2),A      ; ... step count
+0523: CD 63 05        CALL    HandleAlienShot     ; Handle active shot structure
+0526: 3A 76 20        LD      A,(aShotCFirLSB)    ; LSB of column-firing table pointer
+0529: FE 15           CP      $15                 ; Have we processed all entries?
+052B: DA 34 05        JP      C,$0534             ; No ... don't reset it
+052E: 3A 58 1B        LD      A,($1B58)           ; Reset the pointer ...
+0531: 32 76 20        LD      (aShotCFirLSB),A    ; ... back to the start of the table
+0534: 3A 78 20        LD      A,(aShotBlowCnt)    ; Check to see if squiggly shot is done
+0537: A7              AND     A                   ; 0 means blow-up timer expired
+0538: 21 55 20        LD      HL,$2055            ; Squiggly shot data structure
+053B: C2 5B 05        JP      NZ,FromShotStruct   ; If shot is still running, go copy the updated data and out
+*/
+}
+  
+in rom @ 0x53E {
+//; Shot explosion is over. Remove the shot.
+  de = 0x1B50;
+  hl = 0x2050;
+  b = 0x10;
+  BlockCopy();
+  hl = aShotCFir;
+  squShotCFir = hl;
+  return;
+/*
+053E: 11 50 1B        LD      DE,$1B50            ; Reload
+0541: 21 50 20        LD      HL,$2050            ; ... object ...
+0544: 06 10           LD      B,$10               ; ... structure ...
+0546: CD 32 1A        CALL    BlockCopy           ; ... from mirror
+0549: 2A 76 20        LD      HL,(aShotCFirLSB)   ; Copy pointer to column-firing table ...
+054C: 22 58 20        LD      (squShotCFirLSB),HL ; ... back to data structure (for next shot)
+054F: C9              RET                         ; Done
+*/  
+}
+  
+  
 in rom @ 0x550 {
 ToShotStruct:
   shotPicEnd = a;
@@ -1779,6 +1939,9 @@ ToShotStruct:
  
 in rom @ 0x55B {
 FromShotStruct:
+  de = 0x2073;
+  b = 0x0b;
+  ^goto BlockCopy;
 /*
 055B: 11 73 20        LD      DE,$2073            ; Source is the shot-structure
 055E: 06 0B           LD      B,$0B               ; 11 bytes
@@ -1801,6 +1964,15 @@ in rom @ 0x563 {
 */
   HandleAlienShot:
   hl = 0x2073;
+  a = *(hl as *u8);
+  a = a & 0x80;
+  ^goto (0x5C1 as func) if !zero;
+  a = isrSplashTask;
+  cmp(a,0x04);
+  a = enableAlienFire;
+  ^goto (0x5B7 as func) if zero;
+  a = a & a;
+  return if zero;
 /*
 0563: 21 73 20        LD      HL,$2073            ; Start of active shot structure
 0566: 7E              LD      A,(HL)              ; Get the shot status
@@ -1813,11 +1985,147 @@ in rom @ 0x563 {
 0574: CA B7 05        JP      Z,$05B7             ; We are shooting the extra "C" ... just flag it active and out
 0577: A7              AND     A                   ; Is alien fire enabled?
 0578: C8              RET     Z                   ; No ... don't start a new shot
-
+*/
+  hl++;
+  *(hl as *u8) = 0;
+/*
 0579: 23              INC     HL                  ; 2074 step count of current shot
 057A: 36 00           LD      (HL),$00            ; clear the step count
   */
+}
   
+in rom @ 0x57C {
+// Make sure it isn't too soon to fire another shot
+  a = otherShot1;
+  a = a & a;
+  ^if !zero {
+    b = a;
+    a = aShotReloadRate;
+    cmp(a,b);
+    return if !carry;
+  }
+  a = otherShot2;
+  a = a & a;
+  ^if !zero {
+    b = a;
+    a = aShotReloadRate;
+    cmp(a,b);
+    return if !carry;
+  }
+  hl++;
+  a = *(hl as *u8);
+  a = a & a;
+  ^goto (0x61B as func) if zero;
+  hl = aShotCFir;
+  c = *(hl as *u8);
+  hl++;
+  nop();
+  aShotCFir = hl;
+  FindInColumn();
+  return if !carry;
+/*
+057C: 3A 70 20        LD      A,(otherShot1)      ; Get the step count of the 1st "other shot"
+057F: A7              AND     A                   ; Any steps made?
+0580: CA 89 05        JP      Z,$0589             ; No ... ignore this count
+0583: 47              LD      B,A                 ; Shuffle off step count
+0584: 3A CF 20        LD      A,(aShotReloadRate) ; Get the reload rate (based on MSB of score)
+0587: B8              CP      B                   ; Too soon to fire again?
+0588: D0              RET     NC                  ; Yes ... don't fire
+0589: 3A 71 20        LD      A,(otherShot2)      ; Get the step count of the 2nd "other shot"
+058C: A7              AND     A                   ; Any steps made?
+058D: CA 96 05        JP      Z,$0596             ; No steps on any shot ... we are clear to fire
+0590: 47              LD      B,A                 ; Shuffle off step count
+0591: 3A CF 20        LD      A,(aShotReloadRate) ; Get the reload rate (based on MSB of score)
+0594: B8              CP      B                   ; Too soon to fire again?
+0595: D0              RET     NC                  ; Yes ... don't fire
+0596: 23              INC     HL                  ; 2075
+0597: 7E              LD      A,(HL)              ; Get tracking flag
+0598: A7              AND     A                   ; Does this shot track the player?
+0599: CA 1B 06        JP      Z,$061B             ; Yes ... go make a tracking shot;
+059C: 2A 76 20        LD      HL,(aShotCFirLSB)   ; Column-firing table
+059F: 4E              LD      C,(HL)              ; Get next column to fire from
+05A0: 23              INC     HL                  ; Bump the ...
+05A1: 00              NOP                         ; % WHY?
+05A2: 22 76 20        LD      (aShotCFirLSB),HL   ; ... pointer into column table
+05A5: CD 2F 06        CALL    FindInColumn        ; Find alien in target column
+05A8: D0              RET     NC                  ; No alien is alive in target column ... out
+*/
+  GetAlienCoords();
+  a = c;
+  a = a + 7;
+  h = a;
+  a = l;
+  a = a - 0x0a;
+  l = a;
+  alienShotYr = hl;
+/*
+05A9: CD 7A 01        CALL    GetAlienCoords      ; Get coordinates of alien (lowest alien in firing column)
+05AC: 79              LD      A,C                 ; Offset ...
+05AD: C6 07           ADD     A,$07               ; ... Y by 7
+05AF: 67              LD      H,A                 ; To H
+05B0: 7D              LD      A,L                 ; Offset ...
+05B1: D6 0A           SUB     $0A                 ; ... X down 10
+05B3: 6F              LD      L,A                 ; To L
+05B4: 22 7B 20        LD      (alienShotYr),HL    ; Set shot coordinates below alien
+*/
+  hl = 0x2073;
+  a = *(hl as *u8);
+  a = a | 0x80;
+  *(hl as *u8) = a;
+  hl++;
+  ++*(hl as *u8);
+  return;
+/*
+05B7: 21 73 20        LD      HL,$2073            ; Alien shot status
+05BA: 7E              LD      A,(HL)              ; Get the status
+05BB: F6 80           OR      $80                 ; Mark this shot ...
+05BD: 77              LD      (HL),A              ; ... as actively running
+05BE: 23              INC     HL                  ; 2074 step count
+05BF: 34              INC     (HL)                ; Give this shot 1 step (it just started)
+05C0: C9              RET                         ; Out
+*/
+}
+  
+  
+in rom @ 0x62F {
+/*
+; C contains the target column. Look for a live alien in the column starting with
+; the lowest position. Return C=1 if found ... HL points to found slot.
+*/
+  func FindInColumn() {
+    c--;
+    a = playerDataMSB;
+    h = a;
+    l = c;
+    d = 5;
+    ^do {
+    a = *(hl as *u8);
+    a = a & a;
+    carry = false;
+    return if !zero;
+    a = l;
+    a = a + 0x0b;
+    l = a;
+    d--;
+    } while !zero;
+    /*
+062F: 0D              DEC     C                   ; Column that is firing
+0630: 3A 67 20        LD      A,(playerDataMSB)   ; Player's MSB (21xx or 22xx)
+0633: 67              LD      H,A                 ; To MSB of HL
+0634: 69              LD      L,C                 ; Column to L
+0635: 16 05           LD      D,$05               ; 5 rows of aliens
+0637: 7E              LD      A,(HL)              ; Get alien's status
+0638: A7              AND     A                   ; 0 means dead
+0639: 37              SCF                         ; In case not 0
+063A: C0              RET     NZ                  ; Alien is alive? Yes ... return
+063B: 7D              LD      A,L                 ; Get the flag pointer LSB
+063C: C6 0B           ADD     A,$0B               ; Jump to same column on next row of rack (+11 aliens per row)
+063E: 6F              LD      L,A                 ; New alien index
+063F: 15              DEC     D                   ; Tested all rows?
+0640: C2 37 06        JP      NZ,$0637            ; No ... keep looking for a live alien up the rack
+0643: C9              RET                         ; Didn't find a live alien. Return with C=0.
+  */
+  }
 }
 in rom @ 0x765 {
   WaitForStart:
@@ -2338,9 +2646,23 @@ in rom @ 0x14CB {
   }
 }
 in rom @ 0x1538 {
+/*
+; Time down the alien explosion. Remove when done.
+*/
   AExplodeTime:
   hl = 0x2003;
-  /*; Time down the alien explosion. Remove when done.
+  --*(hl as *u8);
+  return if !zero;
+  hl = expAlienCr;
+  b = 0x10;
+  EraseSimpleSprite();
+  a = 4;
+  plyrShotStatus = a;
+  a = a ^ a;
+  alienIsExploding = a;
+  b = 0xf7;
+  ^goto SoundBits3Off;
+/*
 1538: 21 03 20        LD      HL,$2003            ; Decrement alien explosion ...
 153B: 35              DEC     (HL)                ; ... timer
 153C: C0              RET     NZ                  ; Not done  ... out
@@ -2391,12 +2713,13 @@ in rom @ 0x15D3 {
 }
 
 in rom @ 0x1740 {
-  TimeFleetSound:
-  hl = 0x209B;
-  /*
+/*
 ; This called from the ISR times down the fleet and sets the flag at 2095 if
 ; the fleet needs a change in sound handling (new delay, new sound)
-1740: 21 9B 20        LD      HL,$209B            ; Pointer to hold time for fleet
+*/
+  func TimeFleetSound() {
+  hl = 0x209B;
+/*1740: 21 9B 20        LD      HL,$209B            ; Pointer to hold time for fleet
 1743: 35              DEC     (HL)                ; Decrement hold time
 1744: CC 6D 17        CALL    Z,$176D             ; If 0 turn fleet movement sound off
 1747: 3A 68 20        LD      A,(playerOK)        ; Is player OK?
@@ -2421,6 +2744,7 @@ in rom @ 0x1740 {
 1769: 32 9B 20        LD      (fleetSndHold),A    ; ... time for fleet sound
 176C: C9              RET                         ; Done
 */
+  }
 }
 
 in rom @ 0x17C0 {

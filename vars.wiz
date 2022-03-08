@@ -16,28 +16,48 @@ var plyrSprPic16 @ 0x2018 : u16;
 var playerYr16 @ 0x201A : u16;
 var playerXr @ 0x201B : u8;
 var nextDemoCmd @ 0x201D : u8;
+var plyrShotStatus @ 0x2025 : u8;
 var obj1CoorYr @ 0x2029 : u8;
 var obj1CoorXr @ 0x202A : u8;
 var shotDeltaX @ 0x202C : u8;
 var obj2TimerExtra @ 0x2032 : u8;
+var rolShotStepCnt @ 0x2036 : u8;
 var rolShotCFir @ 0x2038 : u16;
 var rolShotCFirLSB @ 0x2038 : u8;
 var rolShotCFirMSB @ 0x2039 : u8;
 var pluShotStepCnt @ 0x2046 : u8;
 var squShotStepCnt @ 0x2056 : u8;
+var squShotCFir @ 0x2058 : u16;
+var squShotCFirLSB @ 0x2058 : u8;
+var squShotCFirMSB @ 0x2058 : u8;
+
 var collision @ 0x2061 : u8;
+
+var expAlienCr @ 0x2064 : u16;
+var expAlienYr @ 0x2064 : u8;
+var expAlienXr @ 0x2065 : u8;
+
+var expAlienYrLSB @ 0x2064 : u8;
+var expAlienYrMSB @ 0x2064 : u8;
+
 var playerDataMSB @ 0x2067 : u8;
 var playerOK @ 0x2068 : u8;
 var enableAlienFire @ 0x2069 : u8;
 var alienFireDelay @ 0x206A : u8;
 var invaded @ 0x206D : u8;
+var skipPlunger @ 0x206E : u8;
 var otherShot1 @ 0x2070 : u8;
 var otherShot2 @ 0x2071 : u8;
 var vblankStatus @ 0x2072 : u8;
+var aShotCFir @ 0x2076 : u16;
+var aShotCFirLSB @ 0x2076 : u8;
+var aShotCFirMSB @ 0x2076 : u8;
 var aShotBlowCnt @ 0x2078 : u8;
+var alienShotYr @ 0x207B : u16;
 var shotPicEnd @ 0x207F : u8;
 var shotSync @ 0x2080 : u8;
 var tmp2081 @ 0x2081 : u8;
+var numAliens @ 0x2082 : u8;
 var saucerActive @ 0x2084 : u8;
 var sauScore @ 0x208D : u16;
 var sauScoreLSB @ 0x208D : u8;
@@ -52,6 +72,8 @@ var soundPort5 @ 0x2098 : u8;
 var isrDelay @ 0x20C0 : u8;
 var isrSplashTask @ 0x20C1 : u8;
 var twoPlayers @ 0x20CE : u8;
+var aShotReloadRate @ 0x20CF : u8;
+
 var coinSwitch @ 0x20EA : u8;
 var numCoins @ 0x20EB : u8;
 var suspendPlay @ 0x20E9 : u8;
