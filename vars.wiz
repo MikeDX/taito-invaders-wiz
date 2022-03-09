@@ -33,6 +33,7 @@ var rolShotCFirLSB @ 0x2038 : u8;
 var rolShotCFirMSB @ 0x2039 : u8;
 var pluShotStepCnt @ 0x2046 : u8;
 var pluShotCFir @ 0x2048 : u16;
+var squShotStatus @ 0x2055 : u8;
 var squShotStepCnt @ 0x2056 : u8;
 var squShotCFir @ 0x2058 : u16;
 var squShotCFirLSB @ 0x2058 : u8;

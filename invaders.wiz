@@ -5781,12 +5781,58 @@ in rom @ 0x1868 {
   a = 1;
   splashReached = a;
   return;
-    /*
+/*
 1898: 3E 01           LD      A,$01               ; Flag that sprite ...
 189A: 32 CB 20        LD      (splashReached),A   ; ... reached location
 189D: C9              RET                         ; Out
-  */
-  
+*/
+// Animate alien shot to extra "C" in splash
+  hl = 0x2050;
+  de = 0x1BC0;
+  b = 0x10;
+  BlockCopy();
+  a = 2;
+  shotSync = a;
+  a = 0xff;
+  alienShotDelta = a;
+  a = 4;
+  isrSplashTask = a;
+  ^do {
+    a = squShotStatus;
+    a = a & 1;
+  } while zero;
+  ^do {
+    a = squShotStatus;
+    a = a & 1;
+  } while !zero;
+  hl = 0x3311;
+  a = 0x26;
+  nop();
+  DrawChar();
+  ^goto TwoSecDelay;
+/*
+189E: 21 50 20        LD      HL,$2050            ; Task descriptor for game object 4 (squiggly shot)
+18A1: 11 C0 1B        LD      DE,$1BC0            ; Task info for animate-shot-to-extra-C
+18A4: 06 10           LD      B,$10               ; Block copy ...
+18A6: CD 32 1A        CALL    BlockCopy           ; ... 16 bytes
+18A9: 3E 02           LD      A,$02               ; Set shot sync ...
+18AB: 32 80 20        LD      (shotSync),A        ; ... to run the squiggly shot
+18AE: 3E FF           LD      A,$FF               ; Shot direction (-1)
+18B0: 32 7E 20        LD      (alienShotDelta),A  ; Alien shot delta
+18B3: 3E 04           LD      A,$04               ; Animate ...
+18B5: 32 C1 20        LD      (isrSplashTask),A   ; ... shot
+18B8: 3A 55 20        LD      A,(squShotStatus)   ; Has shot ...
+18BB: E6 01           AND     $01                 ; ... collided?
+18BD: CA B8 18        JP      Z,$18B8             ; No ... keep waiting
+18C0: 3A 55 20        LD      A,(squShotStatus)   ; Wait ...
+18C3: E6 01           AND     $01                 ; ... for explosion ...
+18C5: C2 C0 18        JP      NZ,$18C0            ; ... to finish
+18C8: 21 11 33        LD      HL,$3311            ; Here is where the extra C is
+18CB: 3E 26           LD      A,$26               ; Space character
+18CD: 00              NOP                         ; ** Why?
+18CE: CD FF 08        CALL    DrawChar            ; Draw character
+18D1: C3 B6 0A        JP      TwoSecDelay         ; Two second delay and out
+*/
 }
 in rom @ 0x18D4 {
 // Initializiation comes here
@@ -5826,6 +5872,28 @@ in rom @ 0x18D4 {
 18EF: 23              INC     HL                  ; Player 1's flag
 18F0: C9              RET                         ; Done
 */
+}
+  
+in rom @ 0x18F1 {
+/*
+; If there is one alien left then the right motion is 3 instead of 2. That's
+; why the timing is hard to hit after the change.
+*/
+  b = 2;
+  a = numAliens;
+  a--;
+  return if !zero;
+  b++;
+  return;
+/*
+18F1: 06 02           LD      B,$02               ; Rack moving right delta X
+18F3: 3A 82 20        LD      A,(numAliens)       ; Number of aliens on screen
+18F6: 3D              DEC     A                   ; Just one left?
+18F7: C0              RET     NZ                  ; No ... use right delta X of 2
+18F8: 04              INC     B                   ; Just one alien ... move right at 3 instead of 2
+18F9: C9              RET                         ; Done
+*/
+  
 }
   
 in rom @ 0x18FA {
@@ -6031,7 +6099,51 @@ in rom @ 0x1956 {
 */
   }
 }
+ 
+in rom @ 0x1986 {
+/*
+; The original code (from TAITO) printed this message on the screen. When Midway branched the code
+; they changed the logic so it isn't printed.
+*/
+  const data_1986 : [u8;2] = [0x8B, 0x19];
   
+/*
+1986: 8B 19 ; Points to print TAITO CORPORATION message ... not sure why
+*/
+  ^goto ClearPlayField;
+/*
+1988: C3 D6 09        JP      ClearPlayField      ; Clear playfield and out
+*/
+  
+//; Print "*TAITO CORPORATION*"
+  hl = 0x2803;
+  de = 0x19BE;
+  c = 0x13;
+  ^goto PrintMessage;
+/*198B: 21 03 28        LD      HL,$2803            ; Screen coordinates
+198E: 11 BE 19        LD      DE,$19BE            ; Message "*TAITO CORPORATION*"
+1991: 0E 13           LD      C,$13               ; Messgae length
+1993: C3 F3 08        JP      PrintMessage        ; Print message
+
+; The original TAITO code:
+;1985: C3 8B 19     JP    $198B              ;
+;1988: CD D6 09     CALL  $09D6              ;
+;198B: 21 03 28     LD    HL,$2803           ;
+;198E: 11 BE 19     LD    DE,$19BE           ;
+;1991: 0E 13        LD    C,$13              ;
+;1993: C3 F3 08     JP    $08F3              ;
+*/
+  
+  nop();
+  nop();
+  nop();
+  nop();
+  
+/*
+1996: 00 00 00 00 ; ** Why?
+*/                           
+  
+}
 in rom @ 0x199A {
 /*
 ; There is a hidden message "TAITO COP" (with no "R") in the game. It can only be
@@ -6048,6 +6160,23 @@ in rom @ 0x199A {
 */
   CheckHiddenMes:
   a = hidMessSeq;
+  a = a & a;
+  ^if zero {
+   a = io_read(io.INP1);
+    a = a & 0x76;
+    a = a - 0x72;
+    return if !zero;
+    a++;
+    hidMessSeq = a;
+  }
+  a = io_read(io.INP1);
+  a = a & 0x76;
+  cmp(a,0x34);
+  return if !zero;
+  hl = 0x2E1B;
+  de = 0xBF7;
+  c = 9;
+  ^goto PrintMessage;
 /*
 199A: 3A 1E 20        LD      A,(hidMessSeq)      ; Has the 1st "hidden-message" sequence ...
 199D: A7              AND     A                   ; ... been registered?
@@ -6069,6 +6198,18 @@ in rom @ 0x199A {
   */
 }
 
+in rom @ 0x19BE {
+//; "*TAITO CORPORATION*"
+MessageTaito:
+
+  const data_19be : [u8] = [
+    0x28, 0x13, 0x00, 0x08, 0x13, 0x0E, 0x26, 0x02, 0x0E, 0x11, 0x0F, 0x0E, 0x11, 
+    0x00, 0x13, 0x08, 0x0E, 0x0D, 0x28
+  ];/*
+19BE: 28 13 00 08 13 0E 26 02 0E 11 0F 0E 11      
+19CB: 00 13 08 0E 0D 28  
+*/
+}
 in rom @ 0x19D1 {
 // Enable ISR game tasks
 
@@ -6122,24 +6263,21 @@ in rom @ 0x19E6 {
 // Show ships remaining in hold for the player
 
   func DrawNumShips() {
-    hl = 0x2701;
-    /*
+  hl = 0x2701;
+  ^if !zero {
+/*
 19E6: 21 01 27        LD      HL,$2701            ; Screen coordinates
-*/
-    if !zero { //^goto 0x19FA if zero;
-      /*
 19E9: CA FA 19        JP      Z,$19FA             ; None in reserve ... skip display
 */
-      // Draw line of ships
-
-      ^do {
-        de = 0x1c60;
-        b = 0x10;
-        c = a;
-        DrawSimpSprite();
-        a = c;
-        a--;
-      } while !zero;
+// Draw line of ships
+    ^do {
+      de = 0x1c60;
+      b = 0x10;
+      c = a;
+      DrawSimpSprite();
+      a = c;
+      a--;
+    } while !zero;
       /*
 19EC: 11 60 1C        LD      DE,$1C60            ; Player sprite
 19EF: 06 10           LD      B,$10               ; 16 rows
@@ -6205,8 +6343,34 @@ in rom @ 0x1A06 {
 1A10: C9              RET                         ; Done
   */
   }
-  
 }
+  
+in rom @ 0x1A11 {
+/*
+; Alien delay lists. First list is the number of aliens. The second list is the corresponding delay.
+; This delay is only for the rate of change in the fleet's sound.
+; The check takes the first num-aliens-value that is lower or the same as the actual num-aliens on screen.
+;
+; The game starts with 55 aliens. The aliens are move/drawn one per interrupt which means it
+; takes 55 interrupts. The first delay value is 52 ... which is almost in sync with the number
+; of aliens. It is a tad faster and you can observe the sound and steps getting out of sync.
+;
+*/
+  const data_1a11 : [u8] = [
+    0x32, 0x2B, 0x24, 0x1C, 0x16, 0x11, 0x0D, 0x0A, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 
+    0x34, 0x2E, 0x27, 0x22, 0x1C, 0x18, 0x15, 0x13, 0x10, 0x0E, 0x0D, 0x0C, 0x0B, 0x09, 0x07, 0x05
+  ];
+  
+/*
+1A11: 32 2B 24 1C 16 11 0D 0A 08 07 06 05 04 03 02 01
+1A21: 34 2E 27 22 1C 18 15 13 10 0E 0D 0C 0B 09 07 05     
+*/
+  const data_1a31 : u8 = 0xff;
+/*
+1A31: FF   ; ** Needless terminator. The list value "1" catches everything.
+*/ 
+}
+  
 in rom @ 0x1A32 {
 //    BlockCopy:
 /*
@@ -6237,6 +6401,16 @@ in rom @ 0x1A3B {
 
   func ReadDesc() {
     e = *(hl as *u8);
+    hl++;
+    d = *(hl as *u8);
+    hl++;
+    a = *(hl as *u8);
+    hl++;
+    c = *(hl as *u8);
+    hl++;
+    b = *(hl as *u8);
+    h = c;
+    l = a;
 /*
 1A3B: 5E              LD      E,(HL)              ; Descriptor ...
 1A3C: 23              INC     HL                  ; ... sprite ...
@@ -6262,7 +6436,23 @@ in rom @ 0x1A47 {
 ; Shift HL right 3 bits (clearing the top 2 bits)
 ; and set the third bit from the left.
 */
-  func ConvToScr() {
+  ConvToScr:
+  push(bc);
+  b = 3;
+  ^do {
+    a = h;
+    const data_1a4b : u8 = 0x1f; // RRA
+    h = a;
+    a = l;
+    const data_1a4e : u8 = 0x1f; // RRA
+    l = a;
+    b--;
+  } while !zero;
+  a = h;
+  a = a & 0x3f;
+  a = a | 0x20;
+  h = a;
+  bc = pop();
     /*
 1A47: C5              PUSH    BC                  ; Hold B (will mangle)
 1A48: 06 03           LD      B,$03               ; 3 shifts (divide by 8)
@@ -6281,7 +6471,7 @@ in rom @ 0x1A47 {
 1A5A: C1              POP     BC                  ; Restore B
 1A5B: C9              RET                         ; Done
   */
-  }
+  return;
   
 }
 in rom @ 0x1A5C {
@@ -6386,8 +6576,98 @@ in rom @ 0x1A7F {
 1A90: C3 C5 09        JP      $09C5               ; Print number remaining  
   */
 }
+
+//  Data From Here Down
+in rom @ 0x1A93 {
+  const data_1a93 : [u8] = [0,0];
+/*
+1A93: 00 00       
+*/
+/*
+; Splash screen animation structure 1
+; 00   Image form (increments each draw)
+; 00   Delta X
+; FF   Delta Y is -1
+; B8   X coordinate
+; FE   Y starting coordiante
+; 1C20 Base image (small alien)
+; 10   Size of image (16 bytes)
+; 9E   Target Y coordiante
+; 00   Reached Y flag
+; 1C20 Base iamge (small alien)
+*/
+  const data_1a95 : [u8] = [
+    0x00,0x00,0xFF,0xB8,0xFE,0x20,0x1C,0x10,0x9E,0x00,0x20,0x1C
+  ];
+/*
+1A95: 00 00 FF B8 FE 20 1C 10 9E 00 20 1C   
+*/
   
+//ShotReloadRate:
+/*
+; The tables at 1CB8 and 1AA1 control how fast shots are created. The speed is based
+; on the upper byte of the player's score. For a score of less than or equal 0200 then
+; the fire speed is 30. For a score less than or equal 1000 the shot speed is 10. Less
+; than or equal 2000 the speed is 0B. Less than or equal 3000 is 08. And anything
+; above 3000 is 07.  
+; 1CB8: 02 10 20 30
+;*/
+  const data_1aa1 : [u8] = [
+    0x30,0x10,0x0B,0x08,0x07
+  ];
+/*
+1AA1: 30 10 0B 08                           
+1AA5: 07           ; Fastest shot firing speed
+*/
   
+MessageGOver:
+//; GAME OVER PLAYER< >"
+  const data_1aa6 : [u8] = [
+    0x06,0x00,0x0C,0x04,0x26,0x0E,0x15,0x04,0x11,0x26,0x26,0x0F,
+    0x0B,0x00,0x18,0x04,0x11,0x24,0x26,0x25
+  ];
+/*
+1AA6: 06 00 0C 04 26 0E 15 04 11 26 26 0F   
+1AB2: 0B 00 18 04 11 24 26 25               
+*/
+MessageB1or2:
+//; "1 OR 2PLAYERS BUTTON"
+  const data_1aba : [u8] = [
+    0x1B,0x26,0x0E,0x11,0x26,0x1C,0x0F,0x0B,0x00,0x18,0x04,
+    0x11,0x12,0x26,0x01,0x14,0x13,0x13,0x0E,0x0D,0x26,
+  ];
+/*
+1ABA: 1B 26 0E 11 26 1C 0F 0B 00 18 04      
+1AC5: 11 12 26 01 14 13 13 0E 0D 26
+*/
+Message1Only:
+/*
+; "ONLY 1PLAYER BUTTON "
+; Note the space on the end ... both alternatives are same length
+*/
+  const data_1acf : [u8] = [
+    0x0E,0x0D,0x0B,0x18,0x26,0x1B,0x0F,0x0B,0x00,0x18,0x04,0x11,0x26,0x26,
+    0x01,0x14,0x13,0x13,0x0E,0x0D,0x26,
+  ];
+/*
+1ACF: 0E 0D 0B 18 26 1B 0F 0B 00 18 04 11 26 26 
+1ADD: 01 14 13 13 0E 0D 26                  
+*/
+  
+
+MessageScore:
+//; " SCORE<1> HI-SCORE SCORE<2>"
+  const data_1ae4 : [u8] = [
+    0x26,0x12,0x02,0x0E,0x11,0x04,0x24,0x1B,0x25,0x26,0x07,0x08,
+    0x3F,0x12,0x02,0x0E,0x11,0x04,0x26,0x12,0x02,0x0E,0x11,0x04,
+    0x24,0x1C,0x25,0x26,
+  ];
+/*
+1AE4: 26 12 02 0E 11 04 24 1B 25 26 07 08   
+1AF0: 3F 12 02 0E 11 04 26 12 02 0E 11 04   
+1AFC: 24 1C 25 26
+*/
+}  
 in rom @ 0x1B00 {
 /*
 ;-------------------------- RAM initialization -----------------------------
@@ -6410,8 +6690,164 @@ const data1b00 : [u8] = [
 1B30: 00 00 02 76 04 00 00 00 00 00 04 EE 1C 00 00 03    
 1B40: 00 00 00 B6 04 00 00 01 00 1D 04 E2 1C 00 00 03 
 1B50: 00 00 00 82 06 00 00 01 06 1D 04 D0 1C 00 00 03
-1B60: FF 00 C0 1C 00 00 10 21 01 00 30 00 12 00 00 00         
+1B60: FF 00 C0 1C 00 00 10 21 01 00 30 00 12 00 00 00 
+  */
+
   
+
+// These don't need to be copied over to RAM (see 1BA0 below).
+MesssageP1:
+//; "PLAY PLAYER<1>"
+  const data_1b70 : [u8] = [
+    0x0F,0x0B,0x00,0x18,0x26,0x0F,0x0B,0x00,0x18,0x04,0x11,0x24,0x1B,0x25,0xFC,
+    0x00
+  ];
+/*
+1B70: 0F 0B 00 18 26 0F 0B 00 18 04 11 24 1B 25 FC 
+1B7F: 00 
+*/
+  const data_1b80 : [u8] = [
+    0x01,0xFF,0xFF,0x00,0x00,0x00,0x20,0x64,0x1D,0xD0,0x29,0x18,0x02,0x54,0x1D,0x00,
+    0x08,0x00,0x06,0x00,0x00,0x01,0x40,0x00,0x01,0x00,0x00,0x10,0x9E,0x00,0x20,0x1C
+  ];
+/*
+1B80: 01 FF FF 00 00 00 20 64 1D D0 29 18 02 54 1D 00               
+1B90: 08 00 06 00 00 01 40 00 01 00 00 10 9E 00 20 1C                                 
+*/ 
+/*
+; These don't need to be copied over to RAM I believe this to be a mistake. The constant at 01E4 is C0,
+; which is the size of this mirror with the added sprite. It should be A0. I believe there was a macro
+; to size this area and later the splash screens where put in. Some of the data spilled over into this
+; and the macro automatically included it. No harm.
+*/
+}
+  
+in rom @ 0x1BA0 {
+//; Alien sprite type C pulling upside down Y
+AlienSprCYA:
+/*; ........
+; **......
+; ..*.....
+; ...****.
+; ..*.*...
+; **..*...
+; ...*....
+; .*.**...
+; *.****..
+; ...*.**.
+; ..******
+; ..******
+; ...*.**.
+; *.****..
+; .*.**...
+; ........
+*/
+  const data_1ba0 : [u8] = [
+    /*{w:8,h:16,bpp:1,count:1,xform:"rotate(-180deg)"}*/
+    0x00,0x03,0x04,0x78,0x14,0x13,0x08,0x1A,0x3D,0x68,0xFC,0xFC,0x68,0x3D,0x1A,0x00,
+    0x00,0x00,0x01,0xB8,0x98,0xA0,0x1B,0x10,0xFF,0x00,0xA0,0x1B,0x00,0x00,0x00,0x00
+  ];
+ 
+//; Shot descriptor for splash shooting the extra "C"
+  const data_1bc0 : [u8] = [
+    0x00,0x10,0x00,0x0E,0x05,0x00,0x00,0x00,0x00,0x00,0x07,0xD0,0x1C,0xC8,0x9B,0x03
+  ];
+/*
+1BC0: 00 10 00 0E 05 00 00 00 00 00 07 D0 1C C8 9B 03
+*/
+}
+  
+in rom @ 0x1C00 {
+AlienSprA:
+/*Alien Images
+; Alien sprite type A,B, and C at positions 0
+;  ........ ........ ........
+;  ........ ........ ........
+;  *..***.. ........ ........
+;  *..****. ...****. ........
+;  .*.****. *.***... *..**...
+;  .***.**. .*****.* .*.***..
+;  ..**.*** ..**.**. *.**.**.
+;  .*.***** ..****.. .*.*****
+;  .*.***** ..****.. .*.*****
+;  ..**.*** ..****.. *.**.**.
+;  .***.**. ..**.**. .*.***..
+;  .*.****. .*****.* *..**...
+;  *..****. *.***... ........
+;  *..***.. ...****. ........
+;  ........ ........ ........
+;  ........ ........ ........
+*/
+  const data_1c00 : [u8] = [
+    /*{w:8,h:16,bpp:1,count:3,xform:"rotate(-180deg)"}*/
+    0x00,0x00,0x39,0x79,0x7A,0x6E,0xEC,0xFA,0xFA,0xEC,0x6E,0x7A,0x79,0x39,0x00,0x00,
+    0x00,0x00,0x00,0x78,0x1D,0xBE,0x6C,0x3C,0x3C,0x3C,0x6C,0xBE,0x1D,0x78,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x19,0x3A,0x6D,0xFA,0xFA,0x6D,0x3A,0x19,0x00,0x00,0x00,0x00,
+    ];
+  /*
+1C00: 00 00 39 79 7A 6E EC FA FA EC 6E 7A 79 39 00 00 
+1C10: 00 00 00 78 1D BE 6C 3C 3C 3C 6C BE 1D 78 00 00 
+1C20: 00 00 00 00 19 3A 6D FA FA 6D 3A 19 00 00 00 00 
+*/
+AlienSprB:
+/*
+; Alien sprite type A,B, and C at positions 1
+;  ........ ........ ........
+;  ........ ........ ........
+;  ...***.. ........ ........
+;  .*.****. .***.... ........
+;  *******. ...**... .*.**...
+;  *.**.**. .*****.* *.****..
+;  ..**.*** *.**.**. ...*.**.
+;  .*.***** *.****.. ..******
+;  .*.***** ..****.. ..******
+;  ..**.*** *.****.. ...*.**.
+;  *.**.**. *.**.**. *.****..
+;  *******. .*****.* .*.**...
+;  .*.****. ...**... ........
+;  ...***.. .***.... ........
+;  ........ ........ ........
+;  ........ ........ ........
+*/
+  const data_1c30 : [u8] = [
+    /*{w:8,h:16,bpp:1,count:3,xform:"rotate(-90deg)"}*/
+    0x00,0x00,0x38,0x7A,0x7F,0x6D,0xEC,0xFA,0xFA,0xEC,0x6D,0x7F,0x7A,0x38,0x00,0x00,
+    0x00,0x00,0x00,0x0E,0x18,0xBE,0x6D,0x3D,0x3C,0x3D,0x6D,0xBE,0x18,0x0E,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x1A,0x3D,0x68,0xFC,0xFC,0x68,0x3D,0x1A,0x00,0x00,0x00,0x00,
+  ];
+/*
+1C30: 00 00 38 7A 7F 6D EC FA FA EC 6D 7F 7A 38 00 00 
+1C40: 00 00 00 0E 18 BE 6D 3D 3C 3D 6D BE 18 0E 00 00 
+1C50: 00 00 00 00 1A 3D 68 FC FC 68 3D 1A 00 00 00 00   
+  */
+}
+  
+in rom @ 0x1C60 {
+//Player Sprite
+PlayerSprite:
+/*;  ........
+;  ........
+;  ****....
+;  *****...
+;  *****...
+;  *****...
+;  *****...
+;  *******.
+;  ********
+;  *******.
+;  *****...
+;  *****...
+;  *****...
+;  *****...
+;  ****....
+;  ........
+*/
+  const data_1c60 : [u8] = [
+    /*{w:8,h:16,bpp:1,count:1,xform:"rotate(-180deg)"}*/
+    0x00,0x00,0x0F,0x1F,0x1F,0x1F,0x1F,0x7F,0xFF,0x7F,0x1F,0x1F,0x1F,0x1F,0x0F,0x00
+    ];
+  /*
+1C60: 00 00 0F 1F 1F 1F 1F 7F FF 7F 1F 1F 1F 1F 0F 00 
   */
 }
   
@@ -6427,6 +6863,7 @@ in rom @ 0x1ED0 {
 in rom @ 0x1F40 {
 
   const data1f40 : [u8] = [
+    /*{w:8,h:8,bpp:1,count:2,xform:"rotate(-180deg)"}*/
     0x00, 0x22, 0x14, 0x7F, 0x14, 0x22, 0x00, 0x00,
     0x00, 0x03, 0x04, 0x78, 0x04, 0x03, 0x00, 0x00
     ];
