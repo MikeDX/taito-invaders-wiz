@@ -7,6 +7,7 @@ var alienCurIndex @ 0x2006 : u8;
 var refAlienDXr @ 0x2008 : u8;
 var refAlienYr8 @ 0x2009 : u8;
 var refAlienYr16 @ 0x2009 : u16;
+var refAlienXr @ 0x200A : u8;
 var alienPosLSB @ 0x200B : u16; // should be u8
 var rackDirection @ 0x200D : u8;
 var obj0TimerLSB @ 0x2011 : u8;
@@ -16,6 +17,7 @@ var plyrSprPic16 @ 0x2018 : u16;
 var playerYr16 @ 0x201A : u16;
 var playerXr @ 0x201B : u8;
 var nextDemoCmd @ 0x201D : u8;
+var hidMessSeq @ 0x201E : u8;
 var plyrShotStatus @ 0x2025 : u8;
 var obj1CoorYr @ 0x2029 : u8;
 var obj1CoorXr @ 0x202A : u8;
@@ -26,6 +28,7 @@ var rolShotCFir @ 0x2038 : u16;
 var rolShotCFirLSB @ 0x2038 : u8;
 var rolShotCFirMSB @ 0x2039 : u8;
 var pluShotStepCnt @ 0x2046 : u8;
+var pluShotCFir @ 0x2048 : u16;
 var squShotStepCnt @ 0x2056 : u8;
 var squShotCFir @ 0x2058 : u16;
 var squShotCFirLSB @ 0x2058 : u8;
@@ -44,27 +47,45 @@ var playerDataMSB @ 0x2067 : u8;
 var playerOK @ 0x2068 : u8;
 var enableAlienFire @ 0x2069 : u8;
 var alienFireDelay @ 0x206A : u8;
+var temp206C @ 0x206C : u8;
 var invaded @ 0x206D : u8;
 var skipPlunger @ 0x206E : u8;
 var otherShot1 @ 0x2070 : u8;
 var otherShot2 @ 0x2071 : u8;
 var vblankStatus @ 0x2072 : u8;
+var aShotStatus @ 0x2073 : u8;
 var aShotCFir @ 0x2076 : u16;
 var aShotCFirLSB @ 0x2076 : u8;
 var aShotCFirMSB @ 0x2076 : u8;
 var aShotBlowCnt @ 0x2078 : u8;
-var alienShotYr @ 0x207B : u16;
+var aShotImage @ 0x2079 : u16;
+var aShotImageLSB @ 0x2079 : u8;
+var alienShotCr @ 0x207B : u16;
+var alienShotYr @ 0x207B : u8;
+var alienShotXr @ 0x207B : u8;
+
+var alienShotSize @ 0x207D : u8;
+var alienShotDelta @ 0x207E : u8;
 var shotPicEnd @ 0x207F : u8;
 var shotSync @ 0x2080 : u8;
 var tmp2081 @ 0x2081 : u8;
 var numAliens @ 0x2082 : u8;
+var saucerStart @ 0x2083 : u8;
 var saucerActive @ 0x2084 : u8;
+var saucerPriLoc @ 0x2087 : u16;
+var saucerPriLocLSB @ 0x2087 : u8;
+var saucerPriPic @ 0x2089 : u16;
+var saucerPriPicLSB @ 0x2089 : u8;
+var saucerPriPicMSB @ 0x208A : u8;
 var sauScore @ 0x208D : u16;
 var sauScoreLSB @ 0x208D : u8;
 var sauScoreMSB @ 0x208E : u8;
 var shotCount @ 0x208F : u16;
 var shotCountLSB @ 0x208F : u8;
 var shotCountMSB @ 0x208F : u8;
+var tillSaucer @ 0x2091 : u16;
+var tillSaucerLSB @ 0x2091 : u8;
+var tillSaucerMSB @ 0x2091 : u8;
 
 var waitStartLoop @ 0x2093 : u8;
 var soundPort3 @ 0x2094 : u8;
@@ -74,25 +95,48 @@ var isrSplashTask @ 0x20C1 : u8;
 var twoPlayers @ 0x20CE : u8;
 var aShotReloadRate @ 0x20CF : u8;
 
+var player1Ex @ 0x20E5 : u16;
+var player1Alive @ 0x20E7 : u16;
+var suspendPlay @ 0x20E9 : u8;
 var coinSwitch @ 0x20EA : u8;
 var numCoins @ 0x20EB : u8;
-var suspendPlay @ 0x20E9 : u8;
+var splashAnimate @ 0x20EC : u8;
 var gameMode @ 0x20EF : u8;
+var adjustScore @ 0x20F1 : u8;
+var scoreDelta @ 0x20F2 : u16;
+var P1Score @ 0x20F8 : u16;
+var P1ScorL @ 0x20F8 : u8;
+var P1ScorH @ 0x20F9 : u8;
+var P2Score @ 0x20FC : u16;
+var P2ScorL @ 0x20FC : u8;
+var P2ScorH @ 0x20FD : u8;
 
 namespace io {
   let INP1 = 0x01;
   let INP2 = 0x02;
+  let SHFTAMNT = 0x02;
   let SOUND1 = 0x03;
   let SHFT_IN = 0x03;
   let SHFT_DATA = 0x04;
   let SOUND2 = 0x05;
+  let WATCHDOG = 0x06;
   
 }
 
 namespace p1 {
   var RefAlienDX @ 0x21FB : u8;
+  var RefAlienC @ 0x21FC : u16;
+  var RefAlienY @ 0x21FC : u8;
+  var RefAlienX @ 0x21FC : u8;
+  var RackCnt @ 0x21FE : u8;
+  var ShipsRem @ 0x21FF : u8;
 }
 
 namespace p2 {
   var RefAlienDX @ 0x22FB : u8;
+  var RefAlienC @ 0x22FC : u16;
+  var RefAlienY @ 0x22FC : u8;
+  var RefAlienX @ 0x22FD : u8;
+  var RackCnt @ 0x22FE : u8;
+  var ShipsRem @ 0x22FF : u8;
 }
