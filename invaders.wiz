@@ -4048,7 +4048,9 @@ MessageCorp:
 ; "TAITO COP"
 0BF7: 13 00 08 13 0E 26 02 0E 0F
   */
+  const zeros = [0u8;2048];
 }
+
 //  repeat
 in rom @ 0x1400 {
 /*
@@ -7814,6 +7816,7 @@ AlienSprCB:
 //1FF3: 0F 14 12 07 26             ; "PUSH " (with space on the end)
 
   const data_1ff8 : [u8] = [
+    /*{w:8,h:8,bpp:1,count:1,xform:"rotate(-180deg)"}*/
     0x00,0x08,0x08,0x08,0x08,0x08,0x00,0x00,
   ];
 //1FF8: 00 08 08 08 08 08 00 00               ; 3F:"-"
